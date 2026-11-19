@@ -1,0 +1,1481 @@
+{
+  "entities": {
+    "PlayerProfile": {
+      "title": "PlayerProfile",
+      "description": "Public Arena player profile used for matchmaking, multiplayer identity, and leaderboards. Contains zero PII.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "avatarUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 400
+        },
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        "rating": {
+          "type": "integer"
+        },
+        "wins": {
+          "type": "integer"
+        },
+        "losses": {
+          "type": "integer"
+        },
+        "matchesPlayed": {
+          "type": "integer"
+        },
+        "customCardCount": {
+          "type": "integer"
+        },
+        "activeSquadIds": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "avatarUrl",
+        "title",
+        "rating",
+        "wins",
+        "losses",
+        "matchesPlayed",
+        "customCardCount",
+        "activeSquadIds",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PlayerPrivateAccount": {
+      "title": "PlayerPrivateAccount",
+      "description": "Strictly owner-only private account document isolating email PII from public player profiles.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "PlayerCard": {
+      "title": "PlayerCard",
+      "description": "Cloud-persisted champion card (custom Oracle card or progressed Founding Champion) owned by a player.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "originalCreatorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "originalCreatorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        "level": {
+          "type": "integer"
+        },
+        "xp": {
+          "type": "integer"
+        },
+        "evolutionStage": {
+          "type": "integer"
+        },
+        "isCustom": {
+          "type": "boolean"
+        },
+        "cardData": {
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "originalCreatorId",
+        "originalCreatorName",
+        "name",
+        "level",
+        "xp",
+        "evolutionStage",
+        "isCustom",
+        "cardData",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MatchRecord": {
+      "title": "MatchRecord",
+      "description": "Immutable summary of a completed solo or multiplayer 5v5 battle recorded under the player.",
+      "type": "object",
+      "properties": {
+        "matchId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["solo", "multiplayer"]
+        },
+        "opponentName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "winner": {
+          "type": "string",
+          "enum": ["player", "enemy"]
+        },
+        "rounds": {
+          "type": "integer"
+        },
+        "turns": {
+          "type": "integer"
+        },
+        "playerSurvivors": {
+          "type": "integer"
+        },
+        "enemySurvivors": {
+          "type": "integer"
+        },
+        "totalPlayerDamage": {
+          "type": "integer"
+        },
+        "totalPlayerHealing": {
+          "type": "integer"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "rulesetVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "playerSquadIds": {
+          "type": "array"
+        },
+        "enemySquadIds": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "matchId",
+        "ownerId",
+        "mode",
+        "opponentName",
+        "winner",
+        "rounds",
+        "turns",
+        "playerSurvivors",
+        "enemySurvivors",
+        "totalPlayerDamage",
+        "totalPlayerHealing",
+        "seed",
+        "rulesetVersion",
+        "playerSquadIds",
+        "enemySquadIds",
+        "createdAt"
+      ]
+    },
+    "BattleRoom": {
+      "title": "BattleRoom",
+      "description": "Real-time 5v5 multiplayer PvP battle room synchronized via Firestore listeners and atomic turn batches.",
+      "type": "object",
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 6,
+          "pattern": "^[A-Z0-9]{6}$"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["waiting", "active", "finished", "cancelled"]
+        },
+        "rulesetVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "hostUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "hostName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "hostSquad": {
+          "type": "array"
+        },
+        "guestUid": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "guestName": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "guestSquad": {
+          "type": "array"
+        },
+        "turnNumber": {
+          "type": "integer"
+        },
+        "round": {
+          "type": "integer"
+        },
+        "activeSide": {
+          "type": "string",
+          "enum": ["player", "enemy"]
+        },
+        "winnerSide": {
+          "type": "string",
+          "enum": ["", "player", "enemy"]
+        },
+        "winnerUid": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "battleState": {
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "roomId",
+        "roomCode",
+        "status",
+        "rulesetVersion",
+        "seed",
+        "hostUid",
+        "hostName",
+        "hostSquad",
+        "guestUid",
+        "guestName",
+        "guestSquad",
+        "turnNumber",
+        "round",
+        "activeSide",
+        "winnerSide",
+        "winnerUid",
+        "battleState",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RoomMove": {
+      "title": "RoomMove",
+      "description": "Immutable turn-by-turn move ledger entry written atomically alongside BattleRoom state progression.",
+      "type": "object",
+      "properties": {
+        "moveId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "turnNumber": {
+          "type": "integer"
+        },
+        "actorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "side": {
+          "type": "string",
+          "enum": ["player", "enemy"]
+        },
+        "actorId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "abilityId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "targetIds": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "moveId",
+        "roomId",
+        "turnNumber",
+        "actorUid",
+        "side",
+        "actorId",
+        "abilityId",
+        "targetIds",
+        "createdAt"
+      ]
+    },
+    "PlayerWallet": {
+      "title": "PlayerWallet",
+      "description": "Oracle Shards virtual currency balance for Marketplace purchases, offers, and trade sweeteners.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "shards": {
+          "type": "integer"
+        },
+        "totalEarned": {
+          "type": "integer"
+        },
+        "totalSpent": {
+          "type": "integer"
+        },
+        "lastSettlementId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "shards",
+        "totalEarned",
+        "totalSpent",
+        "lastSettlementId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TradableCard": {
+      "title": "TradableCard",
+      "description": "Canonical single-owner verified registry for every minted custom Oracle card, preventing duplication across trades and marketplace sales.",
+      "type": "object",
+      "properties": {
+        "cardId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "originalCreatorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "originalCreatorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        "role": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "element": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "rarity": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "level": {
+          "type": "integer"
+        },
+        "evolutionStage": {
+          "type": "integer"
+        },
+        "isCustom": {
+          "type": "boolean"
+        },
+        "activeListingId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "lastTransferId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "cardData": {
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "cardId",
+        "ownerId",
+        "ownerName",
+        "originalCreatorId",
+        "originalCreatorName",
+        "name",
+        "role",
+        "element",
+        "rarity",
+        "level",
+        "evolutionStage",
+        "isCustom",
+        "activeListingId",
+        "lastTransferId",
+        "cardData",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MarketplaceListing": {
+      "title": "MarketplaceListing",
+      "description": "Verified custom champion card listing on the Oracle Arena Marketplace with fixed buyout price and optional player offers.",
+      "type": "object",
+      "properties": {
+        "listingId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "cardId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sellerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sellerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "cardName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        "cardRole": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "cardElement": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "cardRarity": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "cardLevel": {
+          "type": "integer"
+        },
+        "originalCreatorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "originalCreatorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "cardData": {
+          "type": "object"
+        },
+        "priceShards": {
+          "type": "integer"
+        },
+        "allowOffers": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "sold", "cancelled"]
+        },
+        "buyerUid": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "buyerName": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "finalPrice": {
+          "type": "integer"
+        },
+        "transferId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "acceptedOfferId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "listingId",
+        "cardId",
+        "sellerUid",
+        "sellerName",
+        "cardName",
+        "cardRole",
+        "cardElement",
+        "cardRarity",
+        "cardLevel",
+        "originalCreatorId",
+        "originalCreatorName",
+        "cardData",
+        "priceShards",
+        "allowOffers",
+        "status",
+        "buyerUid",
+        "buyerName",
+        "finalPrice",
+        "transferId",
+        "acceptedOfferId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MarketplaceOffer": {
+      "title": "MarketplaceOffer",
+      "description": "Buyer price offer submitted on an active Marketplace listing.",
+      "type": "object",
+      "properties": {
+        "offerId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "listingId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "cardId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sellerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "buyerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "buyerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "offerPriceShards": {
+          "type": "integer"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 180
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "accepted", "declined", "withdrawn"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "offerId",
+        "listingId",
+        "cardId",
+        "sellerUid",
+        "buyerUid",
+        "buyerName",
+        "offerPriceShards",
+        "note",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TradeProposal": {
+      "title": "TradeProposal",
+      "description": "Direct player-to-player card trade proposal supporting iterative counteroffers and atomic card swaps.",
+      "type": "object",
+      "properties": {
+        "tradeId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "proposerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "proposerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "recipientUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "recipientName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "proposerCardId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "proposerCardName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        "proposerCardData": {
+          "type": "object"
+        },
+        "recipientCardId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "recipientCardName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        "recipientCardData": {
+          "type": "object"
+        },
+        "proposerShards": {
+          "type": "integer"
+        },
+        "recipientShards": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "countered", "accepted", "declined", "cancelled"]
+        },
+        "turnUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "transferId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "tradeId",
+        "proposerUid",
+        "proposerName",
+        "recipientUid",
+        "recipientName",
+        "proposerCardId",
+        "proposerCardName",
+        "proposerCardData",
+        "recipientCardId",
+        "recipientCardName",
+        "recipientCardData",
+        "proposerShards",
+        "recipientShards",
+        "message",
+        "status",
+        "turnUid",
+        "revision",
+        "transferId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "OwnershipTransferRecord": {
+      "title": "OwnershipTransferRecord",
+      "description": "Immutable publicly verifiable provenance ledger proving card ownership transfers and Oracle Shard settlements.",
+      "type": "object",
+      "properties": {
+        "transferId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["marketplace", "trade"]
+        },
+        "referenceId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "cardId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "cardName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        "counterCardId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "counterCardName": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 48
+        },
+        "fromUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fromName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "toUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "toName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "shardsPayerUid": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "shardsReceiverUid": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "priceShards": {
+          "type": "integer"
+        },
+        "verified": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "transferId",
+        "reason",
+        "referenceId",
+        "cardId",
+        "cardName",
+        "counterCardId",
+        "counterCardName",
+        "fromUid",
+        "fromName",
+        "toUid",
+        "toName",
+        "shardsPayerUid",
+        "shardsReceiverUid",
+        "priceShards",
+        "verified",
+        "createdAt"
+      ]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "Player-to-player friend request and confirmed friendship link using a deterministic sorted UID pair key.",
+      "type": "object",
+      "properties": {
+        "friendshipId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "requesterUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "requesterName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "addresseeUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "addresseeName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "accepted", "declined"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "friendshipId",
+        "requesterUid",
+        "requesterName",
+        "addresseeUid",
+        "addresseeName",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Clan": {
+      "title": "Clan",
+      "description": "Competitive Oracle Arena player clan with emblem, tag, join policy, leadership, and live roster statistics.",
+      "type": "object",
+      "properties": {
+        "clanId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 5,
+          "pattern": "^[A-Z0-9]{2,5}$"
+        },
+        "motto": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 140
+        },
+        "emblem": {
+          "type": "string",
+          "enum": ["Solar", "Void", "Storm", "Aether", "Cyber", "Iron", "Ember", "Frost"]
+        },
+        "joinPolicy": {
+          "type": "string",
+          "enum": ["open", "invite_only"]
+        },
+        "leaderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "leaderName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "memberCount": {
+          "type": "integer"
+        },
+        "totalRating": {
+          "type": "integer"
+        },
+        "lastEventMemberUid": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "lastEventRefId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "clanId",
+        "name",
+        "tag",
+        "motto",
+        "emblem",
+        "joinPolicy",
+        "leaderUid",
+        "leaderName",
+        "memberCount",
+        "totalRating",
+        "lastEventMemberUid",
+        "lastEventRefId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClanMember": {
+      "title": "ClanMember",
+      "description": "Individual member document inside a clan roster subcollection storing RBAC role and rating snapshot.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "clanId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        "rating": {
+          "type": "integer"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["leader", "officer", "member"]
+        },
+        "joinedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "clanId",
+        "displayName",
+        "title",
+        "rating",
+        "role",
+        "joinedAt",
+        "updatedAt"
+      ]
+    },
+    "ClanMessage": {
+      "title": "ClanMessage",
+      "description": "Clan warroom message, leadership announcement, or PvP spar callout posted inside a clan.",
+      "type": "object",
+      "properties": {
+        "messageId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "clanId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "authorRole": {
+          "type": "string",
+          "enum": ["leader", "officer", "member"]
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["chat", "announcement", "challenge", "battle_result", "achievement"]
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 280
+        },
+        "roomCode": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 6
+        },
+        "badgeLabel": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 60
+        },
+        "highlightMeta": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "messageId",
+        "clanId",
+        "authorUid",
+        "authorName",
+        "authorRole",
+        "kind",
+        "body",
+        "roomCode",
+        "badgeLabel",
+        "highlightMeta",
+        "createdAt"
+      ]
+    },
+    "ClanMembership": {
+      "title": "ClanMembership",
+      "description": "Canonical single-clan pointer per player UID guaranteeing each player belongs to at most one clan and enabling profile clan badges.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "clanId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "clanName": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32
+        },
+        "clanTag": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 5,
+          "pattern": "^[A-Z0-9]{2,5}$"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["leader", "officer", "member"]
+        },
+        "joinedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "clanId",
+        "clanName",
+        "clanTag",
+        "role",
+        "joinedAt",
+        "updatedAt"
+      ]
+    },
+    "ClanInvite": {
+      "title": "ClanInvite",
+      "description": "Direct invitation sent by a clan leader or officer to recruit another Arena player.",
+      "type": "object",
+      "properties": {
+        "inviteId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "clanId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "clanName": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32
+        },
+        "clanTag": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 5,
+          "pattern": "^[A-Z0-9]{2,5}$"
+        },
+        "inviterUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "inviterName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "inviteeUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "inviteeName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "accepted", "declined", "cancelled"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "inviteId",
+        "clanId",
+        "clanName",
+        "clanTag",
+        "inviterUid",
+        "inviterName",
+        "inviteeUid",
+        "inviteeName",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/players/{userId}": {
+      "schema": { "$ref": "#/entities/PlayerProfile" },
+      "description": "Public Arena player profile documents (zero PII)."
+    },
+    "/players/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/PlayerPrivateAccount" },
+      "description": "Owner-only private account documents containing email PII."
+    },
+    "/players/{userId}/cards/{cardId}": {
+      "schema": { "$ref": "#/entities/PlayerCard" },
+      "description": "Owner-scoped cloud champion cards and Phase 3 progression state."
+    },
+    "/players/{userId}/matches/{matchId}": {
+      "schema": { "$ref": "#/entities/MatchRecord" },
+      "description": "Owner-scoped immutable match history records."
+    },
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/BattleRoom" },
+      "description": "Real-time 5v5 PvP multiplayer rooms."
+    },
+    "/rooms/{roomId}/moves/{moveId}": {
+      "schema": { "$ref": "#/entities/RoomMove" },
+      "description": "Immutable turn-by-turn move ledger synced atomically with BattleRoom updates."
+    },
+    "/wallets/{userId}": {
+      "schema": { "$ref": "#/entities/PlayerWallet" },
+      "description": "Oracle Shards virtual currency balance with ledger-verified settlements."
+    },
+    "/tradableCards/{cardId}": {
+      "schema": { "$ref": "#/entities/TradableCard" },
+      "description": "Canonical single-owner verified registry for minted custom Oracle cards."
+    },
+    "/marketplaceListings/{listingId}": {
+      "schema": { "$ref": "#/entities/MarketplaceListing" },
+      "description": "Marketplace listings for verified custom Oracle cards."
+    },
+    "/marketplaceListings/{listingId}/offers/{offerId}": {
+      "schema": { "$ref": "#/entities/MarketplaceOffer" },
+      "description": "Buyer offers submitted on active Marketplace listings."
+    },
+    "/trades/{tradeId}": {
+      "schema": { "$ref": "#/entities/TradeProposal" },
+      "description": "Direct player-to-player card trade proposals and counteroffers."
+    },
+    "/ownershipLedger/{transferId}": {
+      "schema": { "$ref": "#/entities/OwnershipTransferRecord" },
+      "description": "Immutable public provenance ledger for verified Marketplace sales and Trades."
+    },
+    "/friendships/{friendshipId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Player-to-player friend requests and accepted friendships."
+    },
+    "/clans/{clanId}": {
+      "schema": { "$ref": "#/entities/Clan" },
+      "description": "Player clans with emblem, tag, join policy, leadership, and aggregate stats."
+    },
+    "/clans/{clanId}/members/{memberUid}": {
+      "schema": { "$ref": "#/entities/ClanMember" },
+      "description": "Subcollection of verified clan members and their RBAC roles (leader/officer/member)."
+    },
+    "/clans/{clanId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ClanMessage" },
+      "description": "Clan warroom chat, announcements, and PvP spar room code callouts."
+    },
+    "/clanMemberships/{userId}": {
+      "schema": { "$ref": "#/entities/ClanMembership" },
+      "description": "Canonical single-clan pointer per player UID for profile badges and 1-clan enforcement."
+    },
+    "/clanInvites/{inviteId}": {
+      "schema": { "$ref": "#/entities/ClanInvite" },
+      "description": "Direct recruitment invitations sent by clan leaders or officers."
+    }
+  }
+}

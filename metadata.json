@@ -1,0 +1,6 @@
+{
+  "name": "Oracle Arena",
+  "description": "An AI-powered strategic 5v5 collectible card battle game where players command original characters in tactical turn-based combat.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

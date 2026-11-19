@@ -1,0 +1,2228 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Reusable Hardened Global Primitives
+    // =========================================================================
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isBoundedString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidSquadIds(listVal) {
+      return listVal is list
+        && listVal.size() == 5
+        && isValidId(listVal[0])
+        && isValidId(listVal[1])
+        && isValidId(listVal[2])
+        && isValidId(listVal[3])
+        && isValidId(listVal[4]);
+    }
+
+    function isValidSquadMapList(listVal, expectedSize) {
+      return listVal is list
+        && listVal.size() == expectedSize
+        && (expectedSize == 0 || (
+          listVal[0] is map
+          && listVal[1] is map
+          && listVal[2] is map
+          && listVal[3] is map
+          && listVal[4] is map
+        ));
+    }
+
+    // =========================================================================
+    // Pillar 2: Validation Blueprints (Standalone Helpers for Create & Update)
+    // =========================================================================
+    function isValidPlayerProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'displayName',
+          'avatarUrl',
+          'title',
+          'rating',
+          'wins',
+          'losses',
+          'matchesPlayed',
+          'customCardCount',
+          'activeSquadIds',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'avatarUrl',
+          'title',
+          'rating',
+          'wins',
+          'losses',
+          'matchesPlayed',
+          'customCardCount',
+          'activeSquadIds',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && isBoundedString(data.displayName, 2, 40)
+        && isBoundedString(data.avatarUrl, 0, 400)
+        && isBoundedString(data.title, 2, 48)
+        && data.rating is int && data.rating >= 0 && data.rating <= 5000
+        && data.wins is int && data.wins >= 0 && data.wins <= 100000
+        && data.losses is int && data.losses >= 0 && data.losses <= 100000
+        && data.matchesPlayed is int && data.matchesPlayed >= 0 && data.matchesPlayed <= 200000
+        && data.customCardCount is int && data.customCardCount >= 0 && data.customCardCount <= 100
+        && isValidSquadIds(data.activeSquadIds)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPrivateAccount(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && isBoundedString(data.email, 3, 254)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPlayerCard(data, userId, cardId) {
+      return data.keys().hasAll([
+          'id',
+          'ownerId',
+          'originalCreatorId',
+          'originalCreatorName',
+          'name',
+          'level',
+          'xp',
+          'evolutionStage',
+          'isCustom',
+          'cardData',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'ownerId',
+          'originalCreatorId',
+          'originalCreatorName',
+          'name',
+          'level',
+          'xp',
+          'evolutionStage',
+          'isCustom',
+          'cardData',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == cardId
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && isBoundedString(data.originalCreatorId, 1, 128)
+        && isBoundedString(data.originalCreatorName, 1, 48)
+        && isBoundedString(data.name, 2, 48)
+        && data.level is int && data.level >= 1 && data.level <= 10
+        && data.xp is int && data.xp >= 0 && data.xp <= 1000000
+        && data.evolutionStage is int && data.evolutionStage >= 0 && data.evolutionStage <= 2
+        && data.isCustom is bool
+        && data.cardData is map
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMatchRecord(data, userId, matchId) {
+      return data.keys().hasAll([
+          'matchId',
+          'ownerId',
+          'mode',
+          'opponentName',
+          'winner',
+          'rounds',
+          'turns',
+          'playerSurvivors',
+          'enemySurvivors',
+          'totalPlayerDamage',
+          'totalPlayerHealing',
+          'seed',
+          'rulesetVersion',
+          'playerSquadIds',
+          'enemySquadIds',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'matchId',
+          'ownerId',
+          'mode',
+          'opponentName',
+          'winner',
+          'rounds',
+          'turns',
+          'playerSurvivors',
+          'enemySurvivors',
+          'totalPlayerDamage',
+          'totalPlayerHealing',
+          'seed',
+          'rulesetVersion',
+          'playerSquadIds',
+          'enemySquadIds',
+          'createdAt'
+        ])
+        && isValidId(data.matchId)
+        && data.matchId == matchId
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && (data.mode == 'solo' || data.mode == 'multiplayer')
+        && isBoundedString(data.opponentName, 1, 48)
+        && (data.winner == 'player' || data.winner == 'enemy')
+        && data.rounds is int && data.rounds >= 1 && data.rounds <= 100
+        && data.turns is int && data.turns >= 0 && data.turns <= 500
+        && data.playerSurvivors is int && data.playerSurvivors >= 0 && data.playerSurvivors <= 5
+        && data.enemySurvivors is int && data.enemySurvivors >= 0 && data.enemySurvivors <= 5
+        && data.totalPlayerDamage is int && data.totalPlayerDamage >= 0 && data.totalPlayerDamage <= 1000000
+        && data.totalPlayerHealing is int && data.totalPlayerHealing >= 0 && data.totalPlayerHealing <= 1000000
+        && data.seed is int && data.seed >= 0 && data.seed <= 9999999
+        && isBoundedString(data.rulesetVersion, 1, 24)
+        && isValidSquadIds(data.playerSquadIds)
+        && isValidSquadIds(data.enemySquadIds)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidBattleRoom(data, roomId) {
+      return data.keys().hasAll([
+          'roomId',
+          'roomCode',
+          'status',
+          'rulesetVersion',
+          'seed',
+          'hostUid',
+          'hostName',
+          'hostSquad',
+          'guestUid',
+          'guestName',
+          'guestSquad',
+          'turnNumber',
+          'round',
+          'activeSide',
+          'winnerSide',
+          'winnerUid',
+          'battleState',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'roomId',
+          'roomCode',
+          'status',
+          'rulesetVersion',
+          'seed',
+          'hostUid',
+          'hostName',
+          'hostSquad',
+          'guestUid',
+          'guestName',
+          'guestSquad',
+          'turnNumber',
+          'round',
+          'activeSide',
+          'winnerSide',
+          'winnerUid',
+          'battleState',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.roomId)
+        && data.roomId == roomId
+        && data.roomCode is string && data.roomCode.size() == 6 && data.roomCode.matches('^[A-Z0-9]{6}$')
+        && (data.status == 'waiting' || data.status == 'active' || data.status == 'finished' || data.status == 'cancelled')
+        && isBoundedString(data.rulesetVersion, 1, 24)
+        && data.seed is int && data.seed >= 1 && data.seed <= 9999999
+        && isValidId(data.hostUid)
+        && isBoundedString(data.hostName, 2, 40)
+        && isValidSquadMapList(data.hostSquad, 5)
+        && isBoundedString(data.guestUid, 0, 128)
+        && isBoundedString(data.guestName, 0, 40)
+        && (
+          (data.guestUid == '' && isValidSquadMapList(data.guestSquad, 0))
+          || (isValidId(data.guestUid) && data.guestUid != data.hostUid && isValidSquadMapList(data.guestSquad, 5))
+        )
+        && data.turnNumber is int && data.turnNumber >= 0 && data.turnNumber <= 500
+        && data.round is int && data.round >= 1 && data.round <= 100
+        && (data.activeSide == 'player' || data.activeSide == 'enemy')
+        && (data.winnerSide == '' || data.winnerSide == 'player' || data.winnerSide == 'enemy')
+        && isBoundedString(data.winnerUid, 0, 128)
+        && data.battleState is map
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRoomMove(data, roomId, moveId) {
+      return data.keys().hasAll([
+          'moveId',
+          'roomId',
+          'turnNumber',
+          'actorUid',
+          'side',
+          'actorId',
+          'abilityId',
+          'targetIds',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'moveId',
+          'roomId',
+          'turnNumber',
+          'actorUid',
+          'side',
+          'actorId',
+          'abilityId',
+          'targetIds',
+          'createdAt'
+        ])
+        && isValidId(data.moveId)
+        && data.moveId == moveId
+        && isValidId(data.roomId)
+        && data.roomId == roomId
+        && data.turnNumber is int && data.turnNumber >= 1 && data.turnNumber <= 500
+        && data.moveId == ('turn-' + string(data.turnNumber))
+        && isValidId(data.actorUid)
+        && data.actorUid == request.auth.uid
+        && (data.side == 'player' || data.side == 'enemy')
+        && isBoundedString(data.actorId, 2, 128)
+        && isBoundedString(data.abilityId, 2, 128)
+        && data.targetIds is list && data.targetIds.size() >= 1 && data.targetIds.size() <= 5
+        && isBoundedString(data.targetIds[0], 2, 128)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidWallet(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'shards',
+          'totalEarned',
+          'totalSpent',
+          'lastSettlementId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'shards',
+          'totalEarned',
+          'totalSpent',
+          'lastSettlementId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.shards is int && data.shards >= 0 && data.shards <= 10000000
+        && data.totalEarned is int && data.totalEarned >= 0 && data.totalEarned <= 10000000
+        && data.totalSpent is int && data.totalSpent >= 0 && data.totalSpent <= 10000000
+        && isBoundedString(data.lastSettlementId, 0, 128)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTradableCard(data, cardId) {
+      return data.keys().hasAll([
+          'cardId',
+          'ownerId',
+          'ownerName',
+          'originalCreatorId',
+          'originalCreatorName',
+          'name',
+          'role',
+          'element',
+          'rarity',
+          'level',
+          'evolutionStage',
+          'isCustom',
+          'activeListingId',
+          'lastTransferId',
+          'cardData',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'cardId',
+          'ownerId',
+          'ownerName',
+          'originalCreatorId',
+          'originalCreatorName',
+          'name',
+          'role',
+          'element',
+          'rarity',
+          'level',
+          'evolutionStage',
+          'isCustom',
+          'activeListingId',
+          'lastTransferId',
+          'cardData',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.cardId)
+        && data.cardId == cardId
+        && isValidId(data.ownerId)
+        && isBoundedString(data.ownerName, 2, 40)
+        && isBoundedString(data.originalCreatorId, 1, 128)
+        && isBoundedString(data.originalCreatorName, 1, 48)
+        && isBoundedString(data.name, 2, 48)
+        && isBoundedString(data.role, 2, 24)
+        && isBoundedString(data.element, 2, 24)
+        && isBoundedString(data.rarity, 2, 24)
+        && data.level is int && data.level >= 1 && data.level <= 10
+        && data.evolutionStage is int && data.evolutionStage >= 0 && data.evolutionStage <= 2
+        && data.isCustom == true
+        && isBoundedString(data.activeListingId, 0, 128)
+        && isBoundedString(data.lastTransferId, 0, 128)
+        && data.cardData is map
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMarketplaceListing(data, listingId) {
+      return data.keys().hasAll([
+          'listingId',
+          'cardId',
+          'sellerUid',
+          'sellerName',
+          'cardName',
+          'cardRole',
+          'cardElement',
+          'cardRarity',
+          'cardLevel',
+          'originalCreatorId',
+          'originalCreatorName',
+          'cardData',
+          'priceShards',
+          'allowOffers',
+          'status',
+          'buyerUid',
+          'buyerName',
+          'finalPrice',
+          'transferId',
+          'acceptedOfferId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'listingId',
+          'cardId',
+          'sellerUid',
+          'sellerName',
+          'cardName',
+          'cardRole',
+          'cardElement',
+          'cardRarity',
+          'cardLevel',
+          'originalCreatorId',
+          'originalCreatorName',
+          'cardData',
+          'priceShards',
+          'allowOffers',
+          'status',
+          'buyerUid',
+          'buyerName',
+          'finalPrice',
+          'transferId',
+          'acceptedOfferId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.listingId)
+        && data.listingId == listingId
+        && isValidId(data.cardId)
+        && isValidId(data.sellerUid)
+        && isBoundedString(data.sellerName, 2, 40)
+        && isBoundedString(data.cardName, 2, 48)
+        && isBoundedString(data.cardRole, 2, 24)
+        && isBoundedString(data.cardElement, 2, 24)
+        && isBoundedString(data.cardRarity, 2, 24)
+        && data.cardLevel is int && data.cardLevel >= 1 && data.cardLevel <= 10
+        && isBoundedString(data.originalCreatorId, 1, 128)
+        && isBoundedString(data.originalCreatorName, 1, 48)
+        && data.cardData is map
+        && data.priceShards is int && data.priceShards >= 25 && data.priceShards <= 50000
+        && data.allowOffers is bool
+        && (data.status == 'active' || data.status == 'sold' || data.status == 'cancelled')
+        && isBoundedString(data.buyerUid, 0, 128)
+        && isBoundedString(data.buyerName, 0, 40)
+        && data.finalPrice is int && data.finalPrice >= 0 && data.finalPrice <= 50000
+        && isBoundedString(data.transferId, 0, 128)
+        && isBoundedString(data.acceptedOfferId, 0, 128)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMarketplaceOffer(data, listingId, offerId) {
+      return data.keys().hasAll([
+          'offerId',
+          'listingId',
+          'cardId',
+          'sellerUid',
+          'buyerUid',
+          'buyerName',
+          'offerPriceShards',
+          'note',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'offerId',
+          'listingId',
+          'cardId',
+          'sellerUid',
+          'buyerUid',
+          'buyerName',
+          'offerPriceShards',
+          'note',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.offerId)
+        && data.offerId == offerId
+        && isValidId(data.listingId)
+        && data.listingId == listingId
+        && isValidId(data.cardId)
+        && isValidId(data.sellerUid)
+        && isValidId(data.buyerUid)
+        && data.buyerUid != data.sellerUid
+        && isBoundedString(data.buyerName, 2, 40)
+        && data.offerPriceShards is int && data.offerPriceShards >= 25 && data.offerPriceShards <= 50000
+        && isBoundedString(data.note, 0, 180)
+        && (data.status == 'pending' || data.status == 'accepted' || data.status == 'declined' || data.status == 'withdrawn')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTradeProposal(data, tradeId) {
+      return data.keys().hasAll([
+          'tradeId',
+          'proposerUid',
+          'proposerName',
+          'recipientUid',
+          'recipientName',
+          'proposerCardId',
+          'proposerCardName',
+          'proposerCardData',
+          'recipientCardId',
+          'recipientCardName',
+          'recipientCardData',
+          'proposerShards',
+          'recipientShards',
+          'message',
+          'status',
+          'turnUid',
+          'revision',
+          'transferId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'tradeId',
+          'proposerUid',
+          'proposerName',
+          'recipientUid',
+          'recipientName',
+          'proposerCardId',
+          'proposerCardName',
+          'proposerCardData',
+          'recipientCardId',
+          'recipientCardName',
+          'recipientCardData',
+          'proposerShards',
+          'recipientShards',
+          'message',
+          'status',
+          'turnUid',
+          'revision',
+          'transferId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.tradeId)
+        && data.tradeId == tradeId
+        && isValidId(data.proposerUid)
+        && isBoundedString(data.proposerName, 2, 40)
+        && isValidId(data.recipientUid)
+        && isBoundedString(data.recipientName, 2, 40)
+        && data.proposerUid != data.recipientUid
+        && isValidId(data.proposerCardId)
+        && isBoundedString(data.proposerCardName, 2, 48)
+        && data.proposerCardData is map
+        && isValidId(data.recipientCardId)
+        && isBoundedString(data.recipientCardName, 2, 48)
+        && data.recipientCardData is map
+        && data.proposerCardId != data.recipientCardId
+        && data.proposerShards is int && data.proposerShards >= 0 && data.proposerShards <= 10000
+        && data.recipientShards is int && data.recipientShards >= 0 && data.recipientShards <= 10000
+        && isBoundedString(data.message, 0, 200)
+        && (data.status == 'pending' || data.status == 'countered' || data.status == 'accepted' || data.status == 'declined' || data.status == 'cancelled')
+        && (data.turnUid == data.proposerUid || data.turnUid == data.recipientUid)
+        && data.revision is int && data.revision >= 1 && data.revision <= 25
+        && isBoundedString(data.transferId, 0, 128)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOwnershipTransfer(data, transferId) {
+      return data.keys().hasAll([
+          'transferId',
+          'reason',
+          'referenceId',
+          'cardId',
+          'cardName',
+          'counterCardId',
+          'counterCardName',
+          'fromUid',
+          'fromName',
+          'toUid',
+          'toName',
+          'shardsPayerUid',
+          'shardsReceiverUid',
+          'priceShards',
+          'verified',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'transferId',
+          'reason',
+          'referenceId',
+          'cardId',
+          'cardName',
+          'counterCardId',
+          'counterCardName',
+          'fromUid',
+          'fromName',
+          'toUid',
+          'toName',
+          'shardsPayerUid',
+          'shardsReceiverUid',
+          'priceShards',
+          'verified',
+          'createdAt'
+        ])
+        && isValidId(data.transferId)
+        && data.transferId == transferId
+        && (data.reason == 'marketplace' || data.reason == 'trade')
+        && isValidId(data.referenceId)
+        && isValidId(data.cardId)
+        && isBoundedString(data.cardName, 2, 48)
+        && isBoundedString(data.counterCardId, 0, 128)
+        && isBoundedString(data.counterCardName, 0, 48)
+        && isValidId(data.fromUid)
+        && isBoundedString(data.fromName, 2, 40)
+        && isValidId(data.toUid)
+        && isBoundedString(data.toName, 2, 40)
+        && data.fromUid != data.toUid
+        && isBoundedString(data.shardsPayerUid, 0, 128)
+        && isBoundedString(data.shardsReceiverUid, 0, 128)
+        && data.priceShards is int && data.priceShards >= 0 && data.priceShards <= 50000
+        && data.verified == true
+        && data.createdAt is timestamp;
+    }
+
+    function isValidClanRole(role) {
+      return role == 'leader' || role == 'officer' || role == 'member';
+    }
+
+    function isValidClanEmblem(emblem) {
+      return emblem == 'Solar'
+        || emblem == 'Void'
+        || emblem == 'Storm'
+        || emblem == 'Aether'
+        || emblem == 'Cyber'
+        || emblem == 'Iron'
+        || emblem == 'Ember'
+        || emblem == 'Frost';
+    }
+
+    function isValidFriendship(data, friendshipId) {
+      return data.keys().hasAll([
+          'friendshipId',
+          'requesterUid',
+          'requesterName',
+          'addresseeUid',
+          'addresseeName',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'friendshipId',
+          'requesterUid',
+          'requesterName',
+          'addresseeUid',
+          'addresseeName',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.friendshipId)
+        && data.friendshipId == friendshipId
+        && isValidId(data.requesterUid)
+        && isBoundedString(data.requesterName, 2, 40)
+        && isValidId(data.addresseeUid)
+        && isBoundedString(data.addresseeName, 2, 40)
+        && data.requesterUid != data.addresseeUid
+        && (data.status == 'pending' || data.status == 'accepted' || data.status == 'declined')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidClan(data, clanId) {
+      return data.keys().hasAll([
+          'clanId',
+          'name',
+          'tag',
+          'motto',
+          'emblem',
+          'joinPolicy',
+          'leaderUid',
+          'leaderName',
+          'memberCount',
+          'totalRating',
+          'lastEventMemberUid',
+          'lastEventRefId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'clanId',
+          'name',
+          'tag',
+          'motto',
+          'emblem',
+          'joinPolicy',
+          'leaderUid',
+          'leaderName',
+          'memberCount',
+          'totalRating',
+          'lastEventMemberUid',
+          'lastEventRefId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.clanId)
+        && data.clanId == clanId
+        && isBoundedString(data.name, 3, 36)
+        && data.tag is string && data.tag.size() >= 2 && data.tag.size() <= 5 && data.tag.matches('^[A-Z0-9]+$')
+        && isBoundedString(data.motto, 0, 140)
+        && isValidClanEmblem(data.emblem)
+        && (data.joinPolicy == 'open' || data.joinPolicy == 'invite_only')
+        && isValidId(data.leaderUid)
+        && isBoundedString(data.leaderName, 2, 40)
+        && data.memberCount is int && data.memberCount >= 1 && data.memberCount <= 30
+        && data.totalRating is int && data.totalRating >= 0 && data.totalRating <= 200000
+        && isBoundedString(data.lastEventMemberUid, 0, 128)
+        && isBoundedString(data.lastEventRefId, 0, 128)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidClanMember(data, clanId, memberUid) {
+      return data.keys().hasAll([
+          'uid',
+          'clanId',
+          'displayName',
+          'title',
+          'rating',
+          'role',
+          'joinedAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'clanId',
+          'displayName',
+          'title',
+          'rating',
+          'role',
+          'joinedAt',
+          'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == memberUid
+        && isValidId(data.clanId)
+        && data.clanId == clanId
+        && isBoundedString(data.displayName, 2, 40)
+        && isBoundedString(data.title, 2, 48)
+        && data.rating is int && data.rating >= 0 && data.rating <= 5000
+        && isValidClanRole(data.role)
+        && data.joinedAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidClanMembership(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'clanId',
+          'clanName',
+          'clanTag',
+          'role',
+          'joinedAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'clanId',
+          'clanName',
+          'clanTag',
+          'role',
+          'joinedAt',
+          'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && isValidId(data.clanId)
+        && isBoundedString(data.clanName, 3, 36)
+        && data.clanTag is string && data.clanTag.size() >= 2 && data.clanTag.size() <= 5 && data.clanTag.matches('^[A-Z0-9]+$')
+        && isValidClanRole(data.role)
+        && data.joinedAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidClanMessage(data, clanId, messageId) {
+      return data.keys().hasAll([
+          'messageId',
+          'clanId',
+          'authorUid',
+          'authorName',
+          'authorRole',
+          'kind',
+          'body',
+          'roomCode',
+          'badgeLabel',
+          'highlightMeta',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'messageId',
+          'clanId',
+          'authorUid',
+          'authorName',
+          'authorRole',
+          'kind',
+          'body',
+          'roomCode',
+          'badgeLabel',
+          'highlightMeta',
+          'createdAt'
+        ])
+        && isValidId(data.messageId)
+        && data.messageId == messageId
+        && isValidId(data.clanId)
+        && data.clanId == clanId
+        && isValidId(data.authorUid)
+        && isBoundedString(data.authorName, 2, 40)
+        && isValidClanRole(data.authorRole)
+        && (
+          data.kind == 'chat'
+          || data.kind == 'announcement'
+          || data.kind == 'challenge'
+          || data.kind == 'battle_result'
+          || data.kind == 'achievement'
+        )
+        && isBoundedString(data.body, 1, 280)
+        && isBoundedString(data.badgeLabel, 0, 60)
+        && isBoundedString(data.highlightMeta, 0, 120)
+        && (
+          (data.kind == 'challenge' && data.roomCode is string && data.roomCode.size() == 6 && data.roomCode.matches('^[A-Z0-9]+$'))
+          || (data.kind != 'challenge' && data.roomCode == '')
+        )
+        && (
+          (data.kind != 'battle_result' && data.kind != 'achievement')
+          || data.badgeLabel.size() >= 2
+        )
+        && data.createdAt is timestamp;
+    }
+
+    function isValidClanInvite(data, inviteId) {
+      return data.keys().hasAll([
+          'inviteId',
+          'clanId',
+          'clanName',
+          'clanTag',
+          'inviterUid',
+          'inviterName',
+          'inviteeUid',
+          'inviteeName',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'inviteId',
+          'clanId',
+          'clanName',
+          'clanTag',
+          'inviterUid',
+          'inviterName',
+          'inviteeUid',
+          'inviteeName',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.inviteId)
+        && data.inviteId == inviteId
+        && isValidId(data.clanId)
+        && isBoundedString(data.clanName, 3, 36)
+        && data.clanTag is string && data.clanTag.size() >= 2 && data.clanTag.size() <= 5 && data.clanTag.matches('^[A-Z0-9]+$')
+        && isValidId(data.inviterUid)
+        && isBoundedString(data.inviterName, 2, 40)
+        && isValidId(data.inviteeUid)
+        && isBoundedString(data.inviteeName, 2, 40)
+        && data.inviterUid != data.inviteeUid
+        && (data.status == 'pending' || data.status == 'accepted' || data.status == 'declined' || data.status == 'cancelled')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // Collection 1: Public Player Profiles (/players/{userId}) — Zero PII
+    // =========================================================================
+    match /players/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn() && resource.data.rating >= 0;
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidPlayerProfile(incoming(), userId)
+        && incoming().rating == 1000
+        && incoming().wins == 0
+        && incoming().losses == 0
+        && incoming().matchesPlayed == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidPlayerProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName',
+              'avatarUrl',
+              'title',
+              'customCardCount',
+              'activeSquadIds',
+              'updatedAt'
+            ])
+          )
+          ||
+          (
+            incoming().matchesPlayed == existing().matchesPlayed + 1
+            && incoming().wins >= existing().wins
+            && incoming().wins <= existing().wins + 1
+            && incoming().losses >= existing().losses
+            && incoming().losses <= existing().losses + 1
+            && (incoming().wins + incoming().losses) == (existing().wins + existing().losses + 1)
+            && incoming().rating >= existing().rating - 40
+            && incoming().rating <= existing().rating + 40
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'rating',
+              'wins',
+              'losses',
+              'matchesPlayed',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if false;
+
+      // =======================================================================
+      // Collection 2: Owner-Only Private Account PII (/players/{userId}/private/{docId})
+      // =======================================================================
+      match /private/{docId} {
+        allow get: if isOwner(userId) && isValidId(userId) && docId == 'account';
+        allow list: if false;
+
+        allow create: if isVerifiedUser()
+          && isValidId(userId)
+          && docId == 'account'
+          && isOwner(userId)
+          && isValidPrivateAccount(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/players/$(userId));
+
+        allow update: if isVerifiedUser()
+          && isValidId(userId)
+          && docId == 'account'
+          && isOwner(userId)
+          && isValidPrivateAccount(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt'])
+          && exists(/databases/$(database)/documents/players/$(userId));
+
+        allow delete: if false;
+      }
+
+      // =======================================================================
+      // Collection 3: Cloud Champion Cards (/players/{userId}/cards/{cardId})
+      // =======================================================================
+      match /cards/{cardId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(cardId);
+        allow list: if isOwner(userId) && isValidId(userId) && resource.data.ownerId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(cardId)
+          && isOwner(userId)
+          && isValidPlayerCard(incoming(), userId, cardId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/players/$(userId));
+
+        allow update: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(cardId)
+          && isOwner(userId)
+          && isValidPlayerCard(incoming(), userId, cardId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().originalCreatorId == existing().originalCreatorId
+          && incoming().originalCreatorName == existing().originalCreatorName
+          && incoming().isCustom == existing().isCustom
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name',
+            'level',
+            'xp',
+            'evolutionStage',
+            'cardData',
+            'updatedAt'
+          ])
+          && exists(/databases/$(database)/documents/players/$(userId));
+
+        allow delete: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(cardId)
+          && isOwner(userId)
+          && existing().isCustom == true
+          && exists(/databases/$(database)/documents/players/$(userId));
+      }
+
+      // =======================================================================
+      // Collection 4: Immutable Match History (/players/{userId}/matches/{matchId})
+      // =======================================================================
+      match /matches/{matchId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(matchId);
+        allow list: if isOwner(userId) && isValidId(userId) && resource.data.ownerId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(matchId)
+          && isOwner(userId)
+          && isValidMatchRecord(incoming(), userId, matchId)
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/players/$(userId));
+
+        allow update, delete: if false;
+      }
+    }
+
+    // =========================================================================
+    // Collection 5: Real-Time 5v5 Multiplayer Battle Rooms (/rooms/{roomId})
+    // =========================================================================
+    match /rooms/{roomId} {
+      allow get: if isSignedIn()
+        && isValidId(roomId)
+        && (
+          existing().status == 'waiting'
+          || existing().hostUid == request.auth.uid
+          || existing().guestUid == request.auth.uid
+        );
+
+      allow list: if isSignedIn()
+        && (
+          resource.data.status == 'waiting'
+          || resource.data.hostUid == request.auth.uid
+          || resource.data.guestUid == request.auth.uid
+        );
+
+      allow create: if isVerifiedUser()
+        && isValidId(roomId)
+        && isValidBattleRoom(incoming(), roomId)
+        && incoming().hostUid == request.auth.uid
+        && incoming().status == 'waiting'
+        && incoming().guestUid == ''
+        && incoming().guestName == ''
+        && incoming().turnNumber == 0
+        && incoming().round == 1
+        && incoming().winnerSide == ''
+        && incoming().winnerUid == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/players/$(request.auth.uid));
+
+      allow update: if isVerifiedUser()
+        && isValidId(roomId)
+        && isValidBattleRoom(incoming(), roomId)
+        && existing().status != 'finished'
+        && existing().status != 'cancelled'
+        && incoming().roomId == existing().roomId
+        && incoming().roomCode == existing().roomCode
+        && incoming().rulesetVersion == existing().rulesetVersion
+        && incoming().seed == existing().seed
+        && incoming().hostUid == existing().hostUid
+        && incoming().hostName == existing().hostName
+        && incoming().hostSquad == existing().hostSquad
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            existing().status == 'waiting'
+            && request.auth.uid == existing().hostUid
+            && incoming().status == 'cancelled'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+          ||
+          (
+            existing().status == 'waiting'
+            && existing().guestUid == ''
+            && request.auth.uid != existing().hostUid
+            && incoming().guestUid == request.auth.uid
+            && incoming().status == 'active'
+            && incoming().turnNumber == 0
+            && incoming().winnerSide == ''
+            && incoming().winnerUid == ''
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'guestUid',
+              'guestName',
+              'guestSquad',
+              'status',
+              'battleState',
+              'activeSide',
+              'round',
+              'turnNumber',
+              'updatedAt'
+            ])
+            && exists(/databases/$(database)/documents/players/$(request.auth.uid))
+          )
+          ||
+          (
+            existing().status == 'active'
+            && incoming().guestUid == existing().guestUid
+            && incoming().guestName == existing().guestName
+            && incoming().guestSquad == existing().guestSquad
+            && (
+              (existing().activeSide == 'player' && request.auth.uid == existing().hostUid)
+              || (existing().activeSide == 'enemy' && request.auth.uid == existing().guestUid)
+            )
+            && incoming().turnNumber == existing().turnNumber + 1
+            && (
+              (incoming().status == 'active' && incoming().winnerSide == '' && incoming().winnerUid == '')
+              || (
+                incoming().status == 'finished'
+                && (
+                  (incoming().winnerSide == 'player' && incoming().winnerUid == existing().hostUid)
+                  || (incoming().winnerSide == 'enemy' && incoming().winnerUid == existing().guestUid)
+                )
+              )
+            )
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'battleState',
+              'turnNumber',
+              'round',
+              'activeSide',
+              'status',
+              'winnerSide',
+              'winnerUid',
+              'updatedAt'
+            ])
+            && existsAfter(/databases/$(database)/documents/rooms/$(roomId)/moves/$('turn-' + string(incoming().turnNumber)))
+          )
+          ||
+          (
+            existing().status == 'active'
+            && incoming().guestUid == existing().guestUid
+            && incoming().guestName == existing().guestName
+            && incoming().guestSquad == existing().guestSquad
+            && incoming().status == 'finished'
+            && (
+              (request.auth.uid == existing().hostUid && incoming().winnerSide == 'enemy' && incoming().winnerUid == existing().guestUid)
+              || (request.auth.uid == existing().guestUid && incoming().winnerSide == 'player' && incoming().winnerUid == existing().hostUid)
+            )
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
+              'winnerSide',
+              'winnerUid',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if false;
+
+      // =======================================================================
+      // Collection 6: Immutable Atomic Move Ledger (/rooms/{roomId}/moves/{moveId})
+      // =======================================================================
+      match /moves/{moveId} {
+        allow get: if isSignedIn()
+          && isValidId(roomId)
+          && isValidId(moveId)
+          && exists(/databases/$(database)/documents/rooms/$(roomId))
+          && (
+            get(/databases/$(database)/documents/rooms/$(roomId)).data.hostUid == request.auth.uid
+            || get(/databases/$(database)/documents/rooms/$(roomId)).data.guestUid == request.auth.uid
+          );
+
+        allow list: if isSignedIn()
+          && isValidId(roomId)
+          && resource.data.roomId == roomId;
+
+        allow create: if isVerifiedUser()
+          && isValidId(roomId)
+          && isValidId(moveId)
+          && isValidRoomMove(incoming(), roomId, moveId)
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/rooms/$(roomId))
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.status == 'active'
+          && (
+            (
+              incoming().side == 'player'
+              && get(/databases/$(database)/documents/rooms/$(roomId)).data.hostUid == request.auth.uid
+              && get(/databases/$(database)/documents/rooms/$(roomId)).data.activeSide == 'player'
+            )
+            || (
+              incoming().side == 'enemy'
+              && get(/databases/$(database)/documents/rooms/$(roomId)).data.guestUid == request.auth.uid
+              && get(/databases/$(database)/documents/rooms/$(roomId)).data.activeSide == 'enemy'
+            )
+          )
+          && getAfter(/databases/$(database)/documents/rooms/$(roomId)).data.turnNumber == incoming().turnNumber;
+
+        allow update, delete: if false;
+      }
+    }
+
+    // =========================================================================
+    // Collection 7: Oracle Shards Wallet (/wallets/{userId})
+    // =========================================================================
+    match /wallets/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidWallet(incoming(), userId)
+        && incoming().shards == 500
+        && incoming().totalEarned == 500
+        && incoming().totalSpent == 0
+        && incoming().lastSettlementId == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/players/$(userId));
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidWallet(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Owner claims bounded battle reward (+1 to +100 Shards)
+          (
+            isOwner(userId)
+            && incoming().shards > existing().shards
+            && incoming().shards <= existing().shards + 100
+            && incoming().totalEarned == existing().totalEarned + (incoming().shards - existing().shards)
+            && incoming().totalSpent == existing().totalSpent
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'shards',
+              'totalEarned',
+              'updatedAt'
+            ])
+          )
+          ||
+          // Action 2: Atomic Marketplace/Trade debit verified against Ownership Ledger
+          (
+            isValidId(incoming().lastSettlementId)
+            && incoming().lastSettlementId != existing().lastSettlementId
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'shards',
+              'totalSpent',
+              'lastSettlementId',
+              'updatedAt'
+            ])
+            && existsAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId))
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId)).data.shardsPayerUid == userId
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId)).data.priceShards > 0
+            && incoming().shards == existing().shards - getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId)).data.priceShards
+            && incoming().totalSpent == existing().totalSpent + getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId)).data.priceShards
+          )
+          ||
+          // Action 3: Atomic Marketplace/Trade credit verified against Ownership Ledger
+          (
+            isValidId(incoming().lastSettlementId)
+            && incoming().lastSettlementId != existing().lastSettlementId
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'shards',
+              'totalEarned',
+              'lastSettlementId',
+              'updatedAt'
+            ])
+            && existsAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId))
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId)).data.shardsReceiverUid == userId
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId)).data.priceShards > 0
+            && incoming().shards == existing().shards + getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId)).data.priceShards
+            && incoming().totalEarned == existing().totalEarned + getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastSettlementId)).data.priceShards
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Collection 8: Canonical Verified Custom Cards (/tradableCards/{cardId})
+    // =========================================================================
+    match /tradableCards/{cardId} {
+      allow get: if isSignedIn() && isValidId(cardId);
+      allow list: if isSignedIn() && resource.data.isCustom == true;
+
+      allow create: if isVerifiedUser()
+        && isValidId(cardId)
+        && isValidTradableCard(incoming(), cardId)
+        && incoming().ownerId == request.auth.uid
+        && incoming().activeListingId == ''
+        && incoming().lastTransferId == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/players/$(request.auth.uid));
+
+      allow update: if isVerifiedUser()
+        && isValidId(cardId)
+        && isValidTradableCard(incoming(), cardId)
+        && incoming().cardId == existing().cardId
+        && incoming().originalCreatorId == existing().originalCreatorId
+        && incoming().originalCreatorName == existing().originalCreatorName
+        && incoming().isCustom == existing().isCustom
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Owner syncs progression (level, evolution, abilities) while unlocked
+          (
+            existing().ownerId == request.auth.uid
+            && incoming().ownerId == existing().ownerId
+            && existing().activeListingId == ''
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'ownerName',
+              'name',
+              'rarity',
+              'level',
+              'evolutionStage',
+              'cardData',
+              'updatedAt'
+            ])
+          )
+          ||
+          // Action 2: Owner locks card to a new Marketplace listing atomically
+          (
+            existing().ownerId == request.auth.uid
+            && incoming().ownerId == existing().ownerId
+            && existing().activeListingId == ''
+            && isValidId(incoming().activeListingId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'activeListingId',
+              'updatedAt'
+            ])
+            && existsAfter(/databases/$(database)/documents/marketplaceListings/$(incoming().activeListingId))
+            && getAfter(/databases/$(database)/documents/marketplaceListings/$(incoming().activeListingId)).data.cardId == cardId
+            && getAfter(/databases/$(database)/documents/marketplaceListings/$(incoming().activeListingId)).data.sellerUid == request.auth.uid
+            && getAfter(/databases/$(database)/documents/marketplaceListings/$(incoming().activeListingId)).data.status == 'active'
+          )
+          ||
+          // Action 3: Owner unlocks card when cancelling their active Marketplace listing
+          (
+            existing().ownerId == request.auth.uid
+            && incoming().ownerId == existing().ownerId
+            && existing().activeListingId != ''
+            && incoming().activeListingId == ''
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'activeListingId',
+              'updatedAt'
+            ])
+            && getAfter(/databases/$(database)/documents/marketplaceListings/$(existing().activeListingId)).data.status == 'cancelled'
+          )
+          ||
+          // Action 4: Atomic Marketplace Sale Ownership Transfer
+          (
+            existing().activeListingId != ''
+            && incoming().activeListingId == ''
+            && isValidId(incoming().lastTransferId)
+            && incoming().ownerId != existing().ownerId
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'ownerId',
+              'ownerName',
+              'activeListingId',
+              'lastTransferId',
+              'cardData',
+              'updatedAt'
+            ])
+            && existsAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId))
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.reason == 'marketplace'
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.referenceId == existing().activeListingId
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.cardId == cardId
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.fromUid == existing().ownerId
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.toUid == incoming().ownerId
+            && getAfter(/databases/$(database)/documents/marketplaceListings/$(existing().activeListingId)).data.status == 'sold'
+            && getAfter(/databases/$(database)/documents/marketplaceListings/$(existing().activeListingId)).data.buyerUid == incoming().ownerId
+          )
+          ||
+          // Action 5: Atomic Player-to-Player Trade Ownership Transfer (card must not be listed)
+          (
+            existing().activeListingId == ''
+            && incoming().activeListingId == ''
+            && isValidId(incoming().lastTransferId)
+            && incoming().ownerId != existing().ownerId
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'ownerId',
+              'ownerName',
+              'lastTransferId',
+              'cardData',
+              'updatedAt'
+            ])
+            && existsAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId))
+            && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.reason == 'trade'
+            && (
+              (
+                getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.cardId == cardId
+                && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.fromUid == existing().ownerId
+                && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.toUid == incoming().ownerId
+              )
+              || (
+                getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.counterCardId == cardId
+                && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.toUid == existing().ownerId
+                && getAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().lastTransferId)).data.fromUid == incoming().ownerId
+              )
+            )
+          )
+        );
+
+      // Owner may delete an unlisted custom card they personally own
+      allow delete: if isVerifiedUser()
+        && isValidId(cardId)
+        && existing().ownerId == request.auth.uid
+        && existing().activeListingId == '';
+    }
+
+    // =========================================================================
+    // Collection 9: Marketplace Listings (/marketplaceListings/{listingId})
+    // =========================================================================
+    match /marketplaceListings/{listingId} {
+      allow get: if isSignedIn() && isValidId(listingId);
+      allow list: if isSignedIn()
+        && (
+          resource.data.status == 'active'
+          || resource.data.sellerUid == request.auth.uid
+          || resource.data.buyerUid == request.auth.uid
+        );
+
+      allow create: if isVerifiedUser()
+        && isValidId(listingId)
+        && isValidMarketplaceListing(incoming(), listingId)
+        && incoming().sellerUid == request.auth.uid
+        && incoming().status == 'active'
+        && incoming().buyerUid == ''
+        && incoming().buyerName == ''
+        && incoming().finalPrice == 0
+        && incoming().transferId == ''
+        && incoming().acceptedOfferId == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/tradableCards/$(incoming().cardId))
+        && get(/databases/$(database)/documents/tradableCards/$(incoming().cardId)).data.ownerId == request.auth.uid
+        && get(/databases/$(database)/documents/tradableCards/$(incoming().cardId)).data.activeListingId == ''
+        && getAfter(/databases/$(database)/documents/tradableCards/$(incoming().cardId)).data.activeListingId == listingId;
+
+      allow update: if isVerifiedUser()
+        && isValidId(listingId)
+        && isValidMarketplaceListing(incoming(), listingId)
+        && existing().status == 'active'
+        && incoming().listingId == existing().listingId
+        && incoming().cardId == existing().cardId
+        && incoming().sellerUid == existing().sellerUid
+        && incoming().sellerName == existing().sellerName
+        && incoming().originalCreatorId == existing().originalCreatorId
+        && incoming().originalCreatorName == existing().originalCreatorName
+        && incoming().priceShards == existing().priceShards
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Seller cancels active listing and atomically unlocks card
+          (
+            request.auth.uid == existing().sellerUid
+            && incoming().status == 'cancelled'
+            && incoming().buyerUid == ''
+            && incoming().finalPrice == 0
+            && incoming().acceptedOfferId == ''
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+            && getAfter(/databases/$(database)/documents/tradableCards/$(existing().cardId)).data.activeListingId == ''
+          )
+          ||
+          // Action 2: Buyer completes instant buyout at exact listed priceShards
+          (
+            request.auth.uid != existing().sellerUid
+            && incoming().status == 'sold'
+            && incoming().buyerUid == request.auth.uid
+            && incoming().finalPrice == existing().priceShards
+            && incoming().acceptedOfferId == ''
+            && isValidId(incoming().transferId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
+              'buyerUid',
+              'buyerName',
+              'finalPrice',
+              'transferId',
+              'updatedAt'
+            ])
+            && existsAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().transferId))
+            && getAfter(/databases/$(database)/documents/tradableCards/$(existing().cardId)).data.ownerId == request.auth.uid
+          )
+          ||
+          // Action 3: Seller accepts a verified buyer pending offer atomically
+          (
+            request.auth.uid == existing().sellerUid
+            && existing().allowOffers == true
+            && incoming().status == 'sold'
+            && isValidId(incoming().acceptedOfferId)
+            && isValidId(incoming().buyerUid)
+            && incoming().buyerUid != existing().sellerUid
+            && isValidId(incoming().transferId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
+              'buyerUid',
+              'buyerName',
+              'finalPrice',
+              'transferId',
+              'acceptedOfferId',
+              'updatedAt'
+            ])
+            && exists(/databases/$(database)/documents/marketplaceListings/$(listingId)/offers/$(incoming().acceptedOfferId))
+            && get(/databases/$(database)/documents/marketplaceListings/$(listingId)/offers/$(incoming().acceptedOfferId)).data.status == 'pending'
+            && get(/databases/$(database)/documents/marketplaceListings/$(listingId)/offers/$(incoming().acceptedOfferId)).data.buyerUid == incoming().buyerUid
+            && get(/databases/$(database)/documents/marketplaceListings/$(listingId)/offers/$(incoming().acceptedOfferId)).data.offerPriceShards == incoming().finalPrice
+            && getAfter(/databases/$(database)/documents/marketplaceListings/$(listingId)/offers/$(incoming().acceptedOfferId)).data.status == 'accepted'
+            && existsAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().transferId))
+            && getAfter(/databases/$(database)/documents/tradableCards/$(existing().cardId)).data.ownerId == incoming().buyerUid
+          )
+        );
+
+      allow delete: if false;
+
+      // =======================================================================
+      // Collection 10: Marketplace Offers (/marketplaceListings/{listingId}/offers/{offerId})
+      // =======================================================================
+      match /offers/{offerId} {
+        allow get: if isSignedIn()
+          && isValidId(listingId)
+          && isValidId(offerId)
+          && (
+            existing().buyerUid == request.auth.uid
+            || existing().sellerUid == request.auth.uid
+          );
+
+        allow list: if isSignedIn()
+          && isValidId(listingId)
+          && (
+            resource.data.buyerUid == request.auth.uid
+            || resource.data.sellerUid == request.auth.uid
+          );
+
+        allow create: if isVerifiedUser()
+          && isValidId(listingId)
+          && isValidId(offerId)
+          && isValidMarketplaceOffer(incoming(), listingId, offerId)
+          && incoming().buyerUid == request.auth.uid
+          && incoming().status == 'pending'
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/marketplaceListings/$(listingId))
+          && get(/databases/$(database)/documents/marketplaceListings/$(listingId)).data.status == 'active'
+          && get(/databases/$(database)/documents/marketplaceListings/$(listingId)).data.allowOffers == true
+          && get(/databases/$(database)/documents/marketplaceListings/$(listingId)).data.sellerUid == incoming().sellerUid
+          && get(/databases/$(database)/documents/marketplaceListings/$(listingId)).data.cardId == incoming().cardId;
+
+        allow update: if isVerifiedUser()
+          && isValidId(listingId)
+          && isValidId(offerId)
+          && isValidMarketplaceOffer(incoming(), listingId, offerId)
+          && existing().status == 'pending'
+          && incoming().offerId == existing().offerId
+          && incoming().listingId == existing().listingId
+          && incoming().cardId == existing().cardId
+          && incoming().sellerUid == existing().sellerUid
+          && incoming().buyerUid == existing().buyerUid
+          && incoming().buyerName == existing().buyerName
+          && incoming().offerPriceShards == existing().offerPriceShards
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && (
+            // Buyer withdraws own pending offer
+            (request.auth.uid == existing().buyerUid && incoming().status == 'withdrawn')
+            ||
+            // Seller declines pending offer
+            (request.auth.uid == existing().sellerUid && incoming().status == 'declined')
+            ||
+            // Seller accepts pending offer atomically with listing sale
+            (
+              request.auth.uid == existing().sellerUid
+              && incoming().status == 'accepted'
+              && getAfter(/databases/$(database)/documents/marketplaceListings/$(listingId)).data.status == 'sold'
+              && getAfter(/databases/$(database)/documents/marketplaceListings/$(listingId)).data.buyerUid == existing().buyerUid
+              && getAfter(/databases/$(database)/documents/marketplaceListings/$(listingId)).data.finalPrice == existing().offerPriceShards
+            )
+          );
+
+        allow delete: if false;
+      }
+    }
+
+    // =========================================================================
+    // Collection 11: Direct Player-to-Player Trades (/trades/{tradeId})
+    // =========================================================================
+    match /trades/{tradeId} {
+      allow get: if isSignedIn()
+        && isValidId(tradeId)
+        && (
+          existing().proposerUid == request.auth.uid
+          || existing().recipientUid == request.auth.uid
+        );
+
+      allow list: if isSignedIn()
+        && (
+          resource.data.proposerUid == request.auth.uid
+          || resource.data.recipientUid == request.auth.uid
+        );
+
+      allow create: if isVerifiedUser()
+        && isValidId(tradeId)
+        && isValidTradeProposal(incoming(), tradeId)
+        && incoming().proposerUid == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().turnUid == incoming().recipientUid
+        && incoming().revision == 1
+        && incoming().transferId == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/tradableCards/$(incoming().proposerCardId))
+        && get(/databases/$(database)/documents/tradableCards/$(incoming().proposerCardId)).data.ownerId == request.auth.uid
+        && get(/databases/$(database)/documents/tradableCards/$(incoming().proposerCardId)).data.activeListingId == ''
+        && exists(/databases/$(database)/documents/tradableCards/$(incoming().recipientCardId))
+        && get(/databases/$(database)/documents/tradableCards/$(incoming().recipientCardId)).data.ownerId == incoming().recipientUid
+        && get(/databases/$(database)/documents/tradableCards/$(incoming().recipientCardId)).data.activeListingId == '';
+
+      allow update: if isVerifiedUser()
+        && isValidId(tradeId)
+        && isValidTradeProposal(incoming(), tradeId)
+        && (existing().status == 'pending' || existing().status == 'countered')
+        && incoming().tradeId == existing().tradeId
+        && incoming().proposerUid == existing().proposerUid
+        && incoming().proposerName == existing().proposerName
+        && incoming().recipientUid == existing().recipientUid
+        && incoming().recipientName == existing().recipientName
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Current responder submits a Counteroffer (flips turnUid, increments revision)
+          (
+            request.auth.uid == existing().turnUid
+            && incoming().status == 'countered'
+            && incoming().revision == existing().revision + 1
+            && incoming().turnUid != existing().turnUid
+            && incoming().transferId == ''
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'proposerCardId',
+              'proposerCardName',
+              'proposerCardData',
+              'recipientCardId',
+              'recipientCardName',
+              'recipientCardData',
+              'proposerShards',
+              'recipientShards',
+              'message',
+              'status',
+              'turnUid',
+              'revision',
+              'updatedAt'
+            ])
+            && exists(/databases/$(database)/documents/tradableCards/$(incoming().proposerCardId))
+            && get(/databases/$(database)/documents/tradableCards/$(incoming().proposerCardId)).data.ownerId == existing().proposerUid
+            && get(/databases/$(database)/documents/tradableCards/$(incoming().proposerCardId)).data.activeListingId == ''
+            && exists(/databases/$(database)/documents/tradableCards/$(incoming().recipientCardId))
+            && get(/databases/$(database)/documents/tradableCards/$(incoming().recipientCardId)).data.ownerId == existing().recipientUid
+            && get(/databases/$(database)/documents/tradableCards/$(incoming().recipientCardId)).data.activeListingId == ''
+          )
+          ||
+          // Action 2: Either participant declines or cancels the negotiation
+          (
+            (request.auth.uid == existing().proposerUid || request.auth.uid == existing().recipientUid)
+            && (incoming().status == 'declined' || incoming().status == 'cancelled')
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+          ||
+          // Action 3: Current responder accepts the trade atomically with dual card swap + ledger
+          (
+            request.auth.uid == existing().turnUid
+            && incoming().status == 'accepted'
+            && isValidId(incoming().transferId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
+              'transferId',
+              'updatedAt'
+            ])
+            && existsAfter(/databases/$(database)/documents/ownershipLedger/$(incoming().transferId))
+            && getAfter(/databases/$(database)/documents/tradableCards/$(existing().proposerCardId)).data.ownerId == existing().recipientUid
+            && getAfter(/databases/$(database)/documents/tradableCards/$(existing().recipientCardId)).data.ownerId == existing().proposerUid
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Collection 12: Immutable Verified Ownership Ledger (/ownershipLedger/{transferId})
+    // =========================================================================
+    match /ownershipLedger/{transferId} {
+      allow get: if isSignedIn() && isValidId(transferId);
+      allow list: if isSignedIn() && resource.data.verified == true;
+
+      allow create: if isVerifiedUser()
+        && isValidId(transferId)
+        && isValidOwnershipTransfer(incoming(), transferId)
+        && incoming().createdAt == request.time
+        && (
+          // Mandatory atomic wallet settlement whenever priceShards > 0
+          incoming().priceShards == 0
+          || (
+            isValidId(incoming().shardsPayerUid)
+            && isValidId(incoming().shardsReceiverUid)
+            && incoming().shardsPayerUid != incoming().shardsReceiverUid
+            && getAfter(/databases/$(database)/documents/wallets/$(incoming().shardsPayerUid)).data.lastSettlementId == transferId
+            && getAfter(/databases/$(database)/documents/wallets/$(incoming().shardsReceiverUid)).data.lastSettlementId == transferId
+          )
+        )
+        && (
+          // Marketplace sale settlement receipt
+          (
+            incoming().reason == 'marketplace'
+            && incoming().priceShards >= 25
+            && exists(/databases/$(database)/documents/marketplaceListings/$(incoming().referenceId))
+            && get(/databases/$(database)/documents/marketplaceListings/$(incoming().referenceId)).data.status == 'active'
+            && getAfter(/databases/$(database)/documents/marketplaceListings/$(incoming().referenceId)).data.status == 'sold'
+            && getAfter(/databases/$(database)/documents/marketplaceListings/$(incoming().referenceId)).data.transferId == transferId
+            && incoming().cardId == get(/databases/$(database)/documents/marketplaceListings/$(incoming().referenceId)).data.cardId
+            && incoming().fromUid == get(/databases/$(database)/documents/marketplaceListings/$(incoming().referenceId)).data.sellerUid
+            && incoming().toUid == getAfter(/databases/$(database)/documents/marketplaceListings/$(incoming().referenceId)).data.buyerUid
+            && incoming().priceShards == getAfter(/databases/$(database)/documents/marketplaceListings/$(incoming().referenceId)).data.finalPrice
+            && incoming().shardsPayerUid == incoming().toUid
+            && incoming().shardsReceiverUid == incoming().fromUid
+            && (request.auth.uid == incoming().toUid || request.auth.uid == incoming().fromUid)
+          )
+          ||
+          // Direct P2P Trade settlement receipt with exact net shard verification
+          (
+            incoming().reason == 'trade'
+            && exists(/databases/$(database)/documents/trades/$(incoming().referenceId))
+            && get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.turnUid == request.auth.uid
+            && getAfter(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.status == 'accepted'
+            && getAfter(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.transferId == transferId
+            && incoming().cardId == get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.proposerCardId
+            && incoming().counterCardId == get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.recipientCardId
+            && incoming().fromUid == get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.proposerUid
+            && incoming().toUid == get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.recipientUid
+            && (
+              (
+                get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.proposerShards == get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.recipientShards
+                && incoming().priceShards == 0
+                && incoming().shardsPayerUid == ''
+                && incoming().shardsReceiverUid == ''
+              )
+              || (
+                get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.proposerShards > get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.recipientShards
+                && incoming().priceShards == (get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.proposerShards - get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.recipientShards)
+                && incoming().shardsPayerUid == incoming().fromUid
+                && incoming().shardsReceiverUid == incoming().toUid
+              )
+              || (
+                get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.recipientShards > get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.proposerShards
+                && incoming().priceShards == (get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.recipientShards - get(/databases/$(database)/documents/trades/$(incoming().referenceId)).data.proposerShards)
+                && incoming().shardsPayerUid == incoming().toUid
+                && incoming().shardsReceiverUid == incoming().fromUid
+              )
+            )
+          )
+        );
+
+      allow update, delete: if false;
+    }
+
+    // =========================================================================
+    // Collection 13: Friendships (/friendships/{friendshipId})
+    // =========================================================================
+    match /friendships/{friendshipId} {
+      allow get: if isSignedIn()
+        && isValidId(friendshipId)
+        && (
+          existing().requesterUid == request.auth.uid
+          || existing().addresseeUid == request.auth.uid
+        );
+
+      allow list: if isSignedIn()
+        && (
+          resource.data.requesterUid == request.auth.uid
+          || resource.data.addresseeUid == request.auth.uid
+        );
+
+      allow create: if isVerifiedUser()
+        && isValidId(friendshipId)
+        && isValidFriendship(incoming(), friendshipId)
+        && incoming().requesterUid == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/players/$(request.auth.uid))
+        && exists(/databases/$(database)/documents/players/$(incoming().addresseeUid));
+
+      allow update: if isVerifiedUser()
+        && isValidId(friendshipId)
+        && isValidFriendship(incoming(), friendshipId)
+        && existing().status == 'pending'
+        && request.auth.uid == existing().addresseeUid
+        && (incoming().status == 'accepted' || incoming().status == 'declined')
+        && incoming().friendshipId == existing().friendshipId
+        && incoming().requesterUid == existing().requesterUid
+        && incoming().requesterName == existing().requesterName
+        && incoming().addresseeUid == existing().addresseeUid
+        && incoming().addresseeName == existing().addresseeName
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if isVerifiedUser()
+        && isValidId(friendshipId)
+        && (
+          existing().requesterUid == request.auth.uid
+          || existing().addresseeUid == request.auth.uid
+        );
+    }
+
+    // =========================================================================
+    // Collection 14: Clans (/clans/{clanId})
+    // =========================================================================
+    match /clans/{clanId} {
+      allow get: if isSignedIn() && isValidId(clanId);
+      allow list: if isSignedIn() && resource.data.memberCount >= 1;
+
+      allow create: if isVerifiedUser()
+        && isValidId(clanId)
+        && isValidClan(incoming(), clanId)
+        && incoming().leaderUid == request.auth.uid
+        && incoming().memberCount == 1
+        && incoming().lastEventMemberUid == request.auth.uid
+        && incoming().lastEventRefId == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/players/$(request.auth.uid))
+        && !exists(/databases/$(database)/documents/clanMemberships/$(request.auth.uid))
+        && existsAfter(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid))
+        && getAfter(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)).data.role == 'leader'
+        && existsAfter(/databases/$(database)/documents/clanMemberships/$(request.auth.uid))
+        && getAfter(/databases/$(database)/documents/clanMemberships/$(request.auth.uid)).data.clanId == clanId;
+
+      allow update: if isVerifiedUser()
+        && isValidId(clanId)
+        && isValidClan(incoming(), clanId)
+        && incoming().clanId == existing().clanId
+        && incoming().tag == existing().tag
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Leader updates clan settings
+          (
+            request.auth.uid == existing().leaderUid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'name',
+              'motto',
+              'emblem',
+              'joinPolicy',
+              'updatedAt'
+            ])
+          )
+          ||
+          // Action 2: Leader transfers leadership atomically to an existing member
+          (
+            request.auth.uid == existing().leaderUid
+            && incoming().leaderUid != existing().leaderUid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'leaderUid',
+              'leaderName',
+              'updatedAt'
+            ])
+            && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(incoming().leaderUid))
+            && getAfter(/databases/$(database)/documents/clans/$(clanId)/members/$(incoming().leaderUid)).data.role == 'leader'
+            && getAfter(/databases/$(database)/documents/clans/$(clanId)/members/$(existing().leaderUid)).data.role == 'officer'
+          )
+          ||
+          // Action 3: Player joins open clan or accepts verified pending clan invite atomically
+          (
+            incoming().memberCount == existing().memberCount + 1
+            && incoming().lastEventMemberUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'memberCount',
+              'totalRating',
+              'lastEventMemberUid',
+              'lastEventRefId',
+              'updatedAt'
+            ])
+            && exists(/databases/$(database)/documents/players/$(request.auth.uid))
+            && !exists(/databases/$(database)/documents/clanMemberships/$(request.auth.uid))
+            && existsAfter(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid))
+            && existsAfter(/databases/$(database)/documents/clanMemberships/$(request.auth.uid))
+            && getAfter(/databases/$(database)/documents/clanMemberships/$(request.auth.uid)).data.clanId == clanId
+            && (
+              (existing().joinPolicy == 'open' && incoming().lastEventRefId == '')
+              || (
+                isValidId(incoming().lastEventRefId)
+                && exists(/databases/$(database)/documents/clanInvites/$(incoming().lastEventRefId))
+                && get(/databases/$(database)/documents/clanInvites/$(incoming().lastEventRefId)).data.clanId == clanId
+                && get(/databases/$(database)/documents/clanInvites/$(incoming().lastEventRefId)).data.inviteeUid == request.auth.uid
+                && get(/databases/$(database)/documents/clanInvites/$(incoming().lastEventRefId)).data.status == 'pending'
+                && getAfter(/databases/$(database)/documents/clanInvites/$(incoming().lastEventRefId)).data.status == 'accepted'
+              )
+            )
+          )
+          ||
+          // Action 4: Non-leader member leaves OR leader kicks a non-leader member atomically
+          (
+            existing().memberCount > 1
+            && incoming().memberCount == existing().memberCount - 1
+            && isValidId(incoming().lastEventMemberUid)
+            && incoming().lastEventMemberUid != existing().leaderUid
+            && incoming().lastEventRefId == ''
+            && (
+              request.auth.uid == incoming().lastEventMemberUid
+              || request.auth.uid == existing().leaderUid
+            )
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'memberCount',
+              'totalRating',
+              'lastEventMemberUid',
+              'lastEventRefId',
+              'updatedAt'
+            ])
+            && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(incoming().lastEventMemberUid))
+            && !existsAfter(/databases/$(database)/documents/clans/$(clanId)/members/$(incoming().lastEventMemberUid))
+            && !existsAfter(/databases/$(database)/documents/clanMemberships/$(incoming().lastEventMemberUid))
+          )
+        );
+
+      // Solo leader may disband clan when memberCount == 1
+      allow delete: if isVerifiedUser()
+        && isValidId(clanId)
+        && existing().leaderUid == request.auth.uid
+        && existing().memberCount == 1
+        && !existsAfter(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid))
+        && !existsAfter(/databases/$(database)/documents/clanMemberships/$(request.auth.uid));
+
+      // =======================================================================
+      // Collection 15: Clan Roster Members (/clans/{clanId}/members/{memberUid})
+      // =======================================================================
+      match /members/{memberUid} {
+        allow get: if isSignedIn() && isValidId(clanId) && isValidId(memberUid);
+        allow list: if isSignedIn() && isValidId(clanId) && resource.data.clanId == clanId;
+
+        allow create: if isVerifiedUser()
+          && isValidId(clanId)
+          && isValidId(memberUid)
+          && isOwner(memberUid)
+          && isValidClanMember(incoming(), clanId, memberUid)
+          && incoming().joinedAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/players/$(memberUid))
+          && !exists(/databases/$(database)/documents/clanMemberships/$(memberUid))
+          && existsAfter(/databases/$(database)/documents/clans/$(clanId))
+          && existsAfter(/databases/$(database)/documents/clanMemberships/$(memberUid))
+          && getAfter(/databases/$(database)/documents/clanMemberships/$(memberUid)).data.clanId == clanId
+          && getAfter(/databases/$(database)/documents/clanMemberships/$(memberUid)).data.role == incoming().role
+          && (
+            (
+              incoming().role == 'leader'
+              && !exists(/databases/$(database)/documents/clans/$(clanId))
+              && getAfter(/databases/$(database)/documents/clans/$(clanId)).data.leaderUid == memberUid
+              && getAfter(/databases/$(database)/documents/clans/$(clanId)).data.memberCount == 1
+            )
+            || (
+              incoming().role == 'member'
+              && exists(/databases/$(database)/documents/clans/$(clanId))
+              && getAfter(/databases/$(database)/documents/clans/$(clanId)).data.memberCount == get(/databases/$(database)/documents/clans/$(clanId)).data.memberCount + 1
+            )
+          );
+
+        allow update: if isVerifiedUser()
+          && isValidId(clanId)
+          && isValidId(memberUid)
+          && isValidClanMember(incoming(), clanId, memberUid)
+          && incoming().uid == existing().uid
+          && incoming().clanId == existing().clanId
+          && incoming().joinedAt == existing().joinedAt
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/clans/$(clanId))
+          && get(/databases/$(database)/documents/clans/$(clanId)).data.leaderUid == request.auth.uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'updatedAt'])
+          && getAfter(/databases/$(database)/documents/clanMemberships/$(memberUid)).data.role == incoming().role
+          && (
+            // Leader promotes/demotes non-leader between officer and member
+            (
+              memberUid != request.auth.uid
+              && existing().role != 'leader'
+              && (incoming().role == 'officer' || incoming().role == 'member')
+            )
+            ||
+            // Leader transfers leadership to successor
+            (
+              memberUid != request.auth.uid
+              && incoming().role == 'leader'
+              && getAfter(/databases/$(database)/documents/clans/$(clanId)).data.leaderUid == memberUid
+            )
+            ||
+            // Outgoing leader steps down to officer during atomic transfer
+            (
+              memberUid == request.auth.uid
+              && existing().role == 'leader'
+              && incoming().role == 'officer'
+              && getAfter(/databases/$(database)/documents/clans/$(clanId)).data.leaderUid != request.auth.uid
+            )
+          );
+
+        allow delete: if isVerifiedUser()
+          && isValidId(clanId)
+          && isValidId(memberUid)
+          && exists(/databases/$(database)/documents/clans/$(clanId))
+          && !existsAfter(/databases/$(database)/documents/clanMemberships/$(memberUid))
+          && (
+            // Non-leader leaves or is kicked by leader
+            (
+              existing().role != 'leader'
+              && (
+                request.auth.uid == memberUid
+                || get(/databases/$(database)/documents/clans/$(clanId)).data.leaderUid == request.auth.uid
+              )
+              && getAfter(/databases/$(database)/documents/clans/$(clanId)).data.memberCount == get(/databases/$(database)/documents/clans/$(clanId)).data.memberCount - 1
+            )
+            ||
+            // Solo leader disbands clan
+            (
+              existing().role == 'leader'
+              && request.auth.uid == memberUid
+              && get(/databases/$(database)/documents/clans/$(clanId)).data.memberCount == 1
+              && !existsAfter(/databases/$(database)/documents/clans/$(clanId))
+            )
+          );
+      }
+
+      // =======================================================================
+      // Collection 16: Clan Warroom Messages (/clans/{clanId}/messages/{messageId})
+      // =======================================================================
+      match /messages/{messageId} {
+        allow get: if isSignedIn()
+          && isValidId(clanId)
+          && isValidId(messageId)
+          && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid));
+
+        allow list: if isSignedIn()
+          && isValidId(clanId)
+          && resource.data.clanId == clanId
+          && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid));
+
+        allow create: if isVerifiedUser()
+          && isValidId(clanId)
+          && isValidId(messageId)
+          && isValidClanMessage(incoming(), clanId, messageId)
+          && incoming().authorUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/clans/$(clanId))
+          && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid))
+          && incoming().authorRole == get(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)).data.role
+          && (
+            incoming().kind != 'announcement'
+            || incoming().authorRole == 'leader'
+            || incoming().authorRole == 'officer'
+          );
+
+        allow update: if false;
+
+        allow delete: if isVerifiedUser()
+          && isValidId(clanId)
+          && isValidId(messageId)
+          && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid))
+          && (
+            existing().authorUid == request.auth.uid
+            || get(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)).data.role == 'leader'
+            || get(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)).data.role == 'officer'
+          );
+      }
+    }
+
+    // =========================================================================
+    // Collection 17: Single-Clan Membership Registry (/clanMemberships/{userId})
+    // =========================================================================
+    match /clanMemberships/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn() && resource.data.clanTag >= '0';
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidClanMembership(incoming(), userId)
+        && incoming().joinedAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/players/$(userId))
+        && existsAfter(/databases/$(database)/documents/clans/$(incoming().clanId))
+        && getAfter(/databases/$(database)/documents/clans/$(incoming().clanId)).data.name == incoming().clanName
+        && getAfter(/databases/$(database)/documents/clans/$(incoming().clanId)).data.tag == incoming().clanTag
+        && existsAfter(/databases/$(database)/documents/clans/$(incoming().clanId)/members/$(userId))
+        && getAfter(/databases/$(database)/documents/clans/$(incoming().clanId)/members/$(userId)).data.role == incoming().role;
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidClanMembership(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().clanId == existing().clanId
+        && incoming().clanName == existing().clanName
+        && incoming().clanTag == existing().clanTag
+        && incoming().joinedAt == existing().joinedAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'updatedAt'])
+        && exists(/databases/$(database)/documents/clans/$(existing().clanId))
+        && get(/databases/$(database)/documents/clans/$(existing().clanId)).data.leaderUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/clans/$(existing().clanId)/members/$(userId)).data.role == incoming().role;
+
+      allow delete: if isVerifiedUser()
+        && isValidId(userId)
+        && exists(/databases/$(database)/documents/clans/$(existing().clanId))
+        && !existsAfter(/databases/$(database)/documents/clans/$(existing().clanId)/members/$(userId))
+        && (
+          request.auth.uid == userId
+          || get(/databases/$(database)/documents/clans/$(existing().clanId)).data.leaderUid == request.auth.uid
+        );
+    }
+
+    // =========================================================================
+    // Collection 18: Clan Invites (/clanInvites/{inviteId})
+    // =========================================================================
+    match /clanInvites/{inviteId} {
+      allow get: if isSignedIn()
+        && isValidId(inviteId)
+        && (
+          existing().inviterUid == request.auth.uid
+          || existing().inviteeUid == request.auth.uid
+        );
+
+      allow list: if isSignedIn()
+        && (
+          resource.data.inviterUid == request.auth.uid
+          || resource.data.inviteeUid == request.auth.uid
+        );
+
+      allow create: if isVerifiedUser()
+        && isValidId(inviteId)
+        && isValidClanInvite(incoming(), inviteId)
+        && incoming().inviterUid == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/clans/$(incoming().clanId))
+        && get(/databases/$(database)/documents/clans/$(incoming().clanId)).data.name == incoming().clanName
+        && get(/databases/$(database)/documents/clans/$(incoming().clanId)).data.tag == incoming().clanTag
+        && exists(/databases/$(database)/documents/clans/$(incoming().clanId)/members/$(request.auth.uid))
+        && (
+          get(/databases/$(database)/documents/clans/$(incoming().clanId)/members/$(request.auth.uid)).data.role == 'leader'
+          || get(/databases/$(database)/documents/clans/$(incoming().clanId)/members/$(request.auth.uid)).data.role == 'officer'
+        )
+        && exists(/databases/$(database)/documents/players/$(incoming().inviteeUid));
+
+      allow update: if isVerifiedUser()
+        && isValidId(inviteId)
+        && isValidClanInvite(incoming(), inviteId)
+        && existing().status == 'pending'
+        && incoming().inviteId == existing().inviteId
+        && incoming().clanId == existing().clanId
+        && incoming().clanName == existing().clanName
+        && incoming().clanTag == existing().clanTag
+        && incoming().inviterUid == existing().inviterUid
+        && incoming().inviterName == existing().inviterName
+        && incoming().inviteeUid == existing().inviteeUid
+        && incoming().inviteeName == existing().inviteeName
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && (
+          (request.auth.uid == existing().inviteeUid && incoming().status == 'declined')
+          || (request.auth.uid == existing().inviterUid && incoming().status == 'cancelled')
+          || (
+            request.auth.uid == existing().inviteeUid
+            && incoming().status == 'accepted'
+            && existsAfter(/databases/$(database)/documents/clanMemberships/$(request.auth.uid))
+            && getAfter(/databases/$(database)/documents/clanMemberships/$(request.auth.uid)).data.clanId == existing().clanId
+            && getAfter(/databases/$(database)/documents/clans/$(existing().clanId)).data.lastEventRefId == inviteId
+          )
+        );
+
+      allow delete: if false;
+    }
+  }
+}
