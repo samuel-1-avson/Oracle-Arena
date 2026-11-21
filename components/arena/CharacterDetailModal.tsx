@@ -7,6 +7,7 @@ import { validateCharacterBalance } from '@/lib/game/balance';
 import { STANDARD_GUARD_ABILITY } from '@/lib/game/roster';
 import { CharacterDefinition } from '@/lib/game/types';
 import { ELEMENT_STYLES, formatTargetLabel } from './ui-meta';
+import { VisualStatBars } from './VisualStatBars';
 
 interface CharacterDetailModalProps {
   character: CharacterDefinition | null;
@@ -99,54 +100,18 @@ export function CharacterDetailModal({
               />
             </div>
 
-            {/* Core Stats */}
-            <div className="space-y-2.5 pt-1 border-t border-white/10">
-              <div className="flex items-center justify-between text-xs text-[#9CA3B8]">
-                <span className="font-semibold text-[#ECEEF4]">
-                  Combat Attributes
+            {/* Kid-Friendly Visual Stat Bars */}
+            <div className="space-y-3 pt-2 border-t border-white/10">
+              <VisualStatBars character={character} />
+              <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-[#8F96AB] pt-1 border-t border-white/10">
+                <span>
+                  Energy {character.stats.startingEnergy}/
+                  {character.stats.maxEnergy}
                 </span>
-                <span className="font-mono tabular-nums">
+                <span>
                   Budget {balance.statBudgetUsed}/{balance.statBudgetCap}
                 </span>
               </div>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs font-mono tabular-nums">
-                <div className="flex justify-between">
-                  <dt className="text-[#8F96AB]">Max HP</dt>
-                  <dd className="text-emerald-300 font-semibold">
-                    {character.stats.maxHp}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-[#8F96AB]">Attack</dt>
-                  <dd className="text-rose-300 font-semibold">
-                    {character.stats.attack}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-[#8F96AB]">Defense</dt>
-                  <dd className="text-sky-300 font-semibold">
-                    {character.stats.defense}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-[#8F96AB]">Speed</dt>
-                  <dd className="text-amber-300 font-semibold">
-                    {character.stats.speed}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-[#8F96AB]">Energy</dt>
-                  <dd className="text-violet-300 font-semibold">
-                    {character.stats.startingEnergy}/{character.stats.maxEnergy}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-[#8F96AB]">Healing</dt>
-                  <dd className="text-yellow-200 font-semibold">
-                    {character.stats.healingPower}
-                  </dd>
-                </div>
-              </dl>
             </div>
 
             {/* Immutable Ownership & Progression Summary */}

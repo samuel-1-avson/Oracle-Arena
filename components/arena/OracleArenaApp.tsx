@@ -21,11 +21,25 @@ import {
   updateProfileSquadAndCount,
 } from '@/lib/firebase/repository';
 import {
+  claimDailyLoginReward,
+  ClaimDailyRewardResult,
+  createInitialDailyRewardState,
+  DailyLoginRewardState,
+  loadDailyRewardState,
+  saveDailyRewardState,
+} from '@/lib/game/daily-rewards';
+import {
   computeMatchShardReward,
   isCardTradable,
   reconcileOwnedTradableCards,
   TradableCardDoc,
 } from '@/lib/game/economy';
+import {
+  buildGauntletEnemySquad,
+  GauntletBossEncounter,
+  GauntletProgressRecord,
+  loadGauntletProgress,
+} from '@/lib/game/gauntlet';
 import {
   BattleRoomDoc,
   getViewerSide,
@@ -33,6 +47,20 @@ import {
   MultiplayerBattleContext,
   ValidatedTurnResult,
 } from '@/lib/game/multiplayer';
+import {
+  awardAccountBattleProgress,
+  BattleAccountReward,
+  buyBoosterPackWithShards,
+  buyCreatorCardWithShards,
+  claimPeriodicPack,
+  consumeBoosterPack,
+  createInitialPlayerEconomy,
+  loadPlayerEconomy,
+  openWelcomeStarterPack,
+  PlayerEconomyState,
+  savePlayerEconomy,
+  spendCreatorCard,
+} from '@/lib/game/packs';
 import {
   BattleXpGrant,
   computeValidatedBattleRewards,
@@ -54,24 +82,31 @@ import {
 import { persistence } from '@/lib/persistence/adapter';
 import { BattleAnalyticsSummary } from './BattleAnalyticsSummary';
 import { BattleArena } from './BattleArena';
+import { BlindClashView } from './BlindClashView';
 import { CollectionView } from './CollectionView';
+import { DailyRewardModal } from './DailyRewardModal';
 import { ErrorBoundary } from './ErrorBoundary';
 import { EvolutionChamber } from './EvolutionChamber';
 import { FirebaseProvider, useFirebaseAuth } from './FirebaseProvider';
+import { GauntletView } from './GauntletView';
 import { MarketplaceView } from './MarketplaceView';
 import { MatchReplayViewer } from './MatchReplayViewer';
 import { MultiplayerLobby } from './MultiplayerLobby';
 import { OracleStudio } from './OracleStudio';
+import { PackVaultView } from './PackVaultView';
 import { SocialClanView, SocialTab } from './SocialClanView';
 import { TitleScreen } from './TitleScreen';
 import { TradingHubView } from './TradingHubView';
 
 type AppScreen =
   | 'title'
+  | 'packs'
+  | 'blind-clash'
   | 'collection'
   | 'studio'
   | 'evolution'
   | 'battle'
+  | 'gauntlet'
   | 'multiplayer'
   | 'pvp-battle'
   | 'marketplace'
@@ -173,6 +208,16 @@ function OracleArenaShell({
     useState<SocialTab>('leaderboard');
   const [syncingCloud, setSyncingCloud] = useState(false);
 
+  // PvE Boss Gauntlet state
+  const [activeBossEncounter, setActiveBossEncounter] =
+    useState<GauntletBossEncounter | null>(null);
+  const [gauntletProgress, setGauntletProgress] =
+    useState<GauntletProgressRecord>({
+      clearedEncounterIds: [],
+      clearCounts: {},
+      bestTurnsByEncounter: {},
+    });
+
   // Active Multiplayer Room state
   const [prefilledRoomCode, setPrefilledRoomCode] = useState(initialRoomCode);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
@@ -183,6 +228,17 @@ function OracleArenaShell({
   // Live Canonical Tradable Cards Registry (Phase 5 Marketplace & Trading Hub)
   const [tradableCatalog, setTradableCatalog] = useState<TradableCardDoc[]>([]);
 
+  // Account Leveling, Creator Cards & Starter/Periodic Packs State
+  const [economy, setEconomy] = useState<PlayerEconomyState>(() =>
+    createInitialPlayerEconomy(initialAutoStart)
+  );
+
+  // Daily Login Reward Streak State (7-Day Escalating Oracle Shards)
+  const [dailyRewards, setDailyRewards] = useState<DailyLoginRewardState>(() =>
+    createInitialDailyRewardState()
+  );
+  const [showDailyRewardModal, setShowDailyRewardModal] = useState(false);
+
   const syncedUidRef = useRef<string | null>(null);
 
   // Hydrate local persistence on mount
@@ -190,14 +246,36 @@ function OracleArenaShell({
     let active = true;
     Promise.resolve().then(() => {
       if (!active) return;
-      setAllCharacters(persistence.getCollection());
+      const localCards = persistence.getCollection();
+      const localHistory = persistence.getMatchHistory();
+      const hasPriorActivity =
+        initialAutoStart ||
+        localHistory.length > 0 ||
+        localCards.some((c) => c.id.startsWith('chr-custom-'));
+
+      setAllCharacters(localCards);
       setSquadIds(persistence.getPlayerSquadIds());
-      setMatchHistory(persistence.getMatchHistory());
+      setMatchHistory(localHistory);
+      setGauntletProgress(loadGauntletProgress());
+      setEconomy(loadPlayerEconomy(hasPriorActivity));
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [initialAutoStart]);
+
+  // Hydrate Daily Login Reward streak per signed-in account or local player
+  const dailyAccountKey = user?.uid ?? 'local';
+  useEffect(() => {
+    let active = true;
+    Promise.resolve().then(() => {
+      if (!active) return;
+      setDailyRewards(loadDailyRewardState(dailyAccountKey));
+    });
+    return () => {
+      active = false;
+    };
+  }, [dailyAccountKey]);
 
   // Cloud Sync on Google Sign-In (merges local + Cloud Firestore cards, progression, squad & matches)
   useEffect(() => {
@@ -386,6 +464,167 @@ function OracleArenaShell({
     [allCharacters]
   );
 
+  // Player's unlocked private collection (8 starter cards after tearing Welcome Pack + custom/pack/traded cards)
+  const ownedCharacters = useMemo(() => {
+    if (!economy.starterPackOpened) {
+      return allCharacters.filter((c) => c.id.startsWith('chr-custom-'));
+    }
+    const unlockedSet = new Set(economy.unlockedStarterIds);
+    return allCharacters.filter(
+      (c) => c.id.startsWith('chr-custom-') || unlockedSet.has(c.id)
+    );
+  }, [allCharacters, economy.starterPackOpened, economy.unlockedStarterIds]);
+
+  const updateEconomy = useCallback(
+    (updater: (prev: PlayerEconomyState) => PlayerEconomyState) => {
+      setEconomy((prev) => {
+        const next = updater(prev);
+        savePlayerEconomy(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleClaimDailyReward = useCallback((): ClaimDailyRewardResult => {
+    const result = claimDailyLoginReward(dailyRewards, new Date());
+    if (!result.ok) {
+      return result;
+    }
+
+    saveDailyRewardState(result.nextState, dailyAccountKey);
+    setDailyRewards(result.nextState);
+    updateEconomy((prev) => ({
+      ...prev,
+      localShards: prev.localShards + result.shardsAwarded,
+    }));
+
+    if (user) {
+      void awardMatchShards(user.uid, result.shardsAwarded).catch((err) =>
+        console.error('Daily login cloud shard credit warning:', err)
+      );
+    }
+
+    return result;
+  }, [dailyRewards, dailyAccountKey, updateEconomy, user]);
+
+  const handleOpenStarterPack = useCallback(() => {
+    const res = openWelcomeStarterPack(economy);
+    savePlayerEconomy(res.nextState);
+    setEconomy(res.nextState);
+    return {
+      unlockedCards: res.unlockedCards,
+      creatorCardsGranted: res.creatorCardsGranted,
+    };
+  }, [economy]);
+
+  const handleClaimPeriodicPack = useCallback(
+    (kind: 'weekly' | 'monthly') => {
+      const res = claimPeriodicPack(economy, kind);
+      if (res.ok) {
+        savePlayerEconomy(res.nextState);
+        setEconomy(res.nextState);
+      }
+      return { ok: res.ok, error: res.error, packsAdded: res.packsAdded };
+    },
+    [economy]
+  );
+
+  const handleBuyCreatorCard = useCallback(() => {
+    const res = buyCreatorCardWithShards(economy);
+    if (res.ok) {
+      savePlayerEconomy(res.nextState);
+      setEconomy(res.nextState);
+    }
+    return { ok: res.ok, error: res.error };
+  }, [economy]);
+
+  const handleBuyBoosterPack = useCallback(() => {
+    const res = buyBoosterPackWithShards(economy);
+    if (res.ok) {
+      savePlayerEconomy(res.nextState);
+      setEconomy(res.nextState);
+    }
+    return { ok: res.ok, error: res.error };
+  }, [economy]);
+
+  const handleSpendCreatorCard = useCallback(() => {
+    const res = spendCreatorCard(economy);
+    if (res.ok) {
+      savePlayerEconomy(res.nextState);
+      setEconomy(res.nextState);
+    }
+    return { ok: res.ok, error: res.error };
+  }, [economy]);
+
+  const handleCommitBoosterCards = useCallback(
+    (cards: CharacterDefinition[], newlyUnlockedStarterIds: string[]) => {
+      const consumed = consumeBoosterPack(economy);
+      const nextUnlocked = Array.from(
+        new Set([...consumed.nextState.unlockedStarterIds, ...newlyUnlockedStarterIds])
+      );
+      const nextEconomy: PlayerEconomyState = {
+        ...consumed.nextState,
+        unlockedStarterIds: nextUnlocked,
+      };
+      savePlayerEconomy(nextEconomy);
+      setEconomy(nextEconomy);
+
+      for (const card of cards) {
+        if (card.id.startsWith('chr-custom-')) {
+          persistence.saveCustomCharacter(card);
+          if (user) {
+            void saveCardToCloud(user.uid, card).catch((err) =>
+              console.error('Booster card cloud sync warning:', err)
+            );
+          }
+        }
+      }
+      setAllCharacters(persistence.getCollection());
+    },
+    [economy, user]
+  );
+
+  const handleCompleteBlindClash = useCallback(
+    (won: boolean): BattleAccountReward => {
+      const res = awardAccountBattleProgress(economy, {
+        won,
+        mode: 'blind_clash',
+      });
+      savePlayerEconomy(res.nextState);
+      setEconomy(res.nextState);
+      return res;
+    },
+    [economy]
+  );
+
+  const handleSwapLocalCard = useCallback(
+    (giveCardId: string, receiveCard: CharacterDefinition) => {
+      // Remove traded-away card (either custom delete or remove from unlocked starters)
+      if (giveCardId.startsWith('chr-custom-')) {
+        persistence.deleteCustomCharacter(giveCardId);
+      } else {
+        updateEconomy((prev) => ({
+          ...prev,
+          unlockedStarterIds: prev.unlockedStarterIds.filter(
+            (id) => id !== giveCardId
+          ),
+        }));
+      }
+
+      persistence.saveCustomCharacter(receiveCard);
+      const nextCollection = persistence.getCollection();
+      setAllCharacters(nextCollection);
+
+      if (user) {
+        void saveCardToCloud(user.uid, receiveCard).catch((err) =>
+          console.error('Traded card cloud sync warning:', err)
+        );
+      }
+    },
+    [updateEconomy, user]
+  );
+
   const syncBodyState = useCallback(
     (state: 'title' | 'playing' | 'paused' | 'gameover') => {
       if (typeof document !== 'undefined') {
@@ -423,11 +662,33 @@ function OracleArenaShell({
     ) {
       document.activeElement.blur();
     }
+    setActiveBossEncounter(null);
     setBattleSeed(Math.floor(10000 + Math.random() * 89999));
     setBattleInstanceKey((k) => k + 1);
     syncBodyState('playing');
     setScreen('battle');
   }, [syncBodyState]);
+
+  const handleStartBossBattle = useCallback(
+    (encounter: GauntletBossEncounter) => {
+      if (
+        typeof document !== 'undefined' &&
+        document.activeElement instanceof HTMLElement
+      ) {
+        document.activeElement.blur();
+      }
+      setActiveBossEncounter(encounter);
+      setBattleSeed(encounter.seed);
+      setBattleInstanceKey((k) => k + 1);
+      syncBodyState('playing');
+      setScreen('battle');
+    },
+    [syncBodyState]
+  );
+
+  const handleBossCleared = useCallback(() => {
+    setGauntletProgress(loadGauntletProgress());
+  }, []);
 
   const handleOpenEvolutionChamber = useCallback((focusDefId?: string) => {
     setEvolutionFocusId(focusDefId ?? null);
@@ -636,9 +897,22 @@ function OracleArenaShell({
         }
       }
 
+      // Always award Account XP + Oracle Shards (+1 Creator Card on Account Level-Up!)
+      updateEconomy(
+        (prev) =>
+          awardAccountBattleProgress(prev, {
+            won: didViewerWin,
+            mode: activeBossEncounter
+              ? 'gauntlet'
+              : mode === 'multiplayer'
+                ? 'pvp'
+                : 'arena_5v5',
+          }).nextState
+      );
+
       return grants;
     },
-    [user, profile]
+    [user, profile, updateEconomy, activeBossEncounter]
   );
 
   const handleEnterPvpRoom = useCallback(
@@ -830,14 +1104,35 @@ function OracleArenaShell({
     );
   }
 
+  if (screen === 'gauntlet') {
+    return (
+      <GauntletView
+        activeSquad={activePlayerSquad}
+        progress={gauntletProgress}
+        syncingCloud={syncingCloud}
+        onChallengeBoss={handleStartBossBattle}
+        onOpenCollection={() => setScreen('collection')}
+        onStartStandardBattle={handleStartBattle}
+        onBackToTitle={() => setScreen('title')}
+      />
+    );
+  }
+
   if (screen === 'battle') {
+    const resolvedEnemySquad = activeBossEncounter
+      ? buildGauntletEnemySquad(activeBossEncounter)
+      : activeEnemySquad;
+
     return (
       <BattleArena
         key={battleInstanceKey}
         initialSeed={battleSeed}
         allCharacters={allCharacters}
         playerSquad={activePlayerSquad}
-        enemySquad={activeEnemySquad}
+        enemySquad={resolvedEnemySquad}
+        bossEncounter={activeBossEncounter}
+        onBossCleared={handleBossCleared}
+        onOpenGauntlet={() => setScreen('gauntlet')}
         onMatchFinished={handleMatchFinished}
         onOpenCollection={() => setScreen('collection')}
         onOpenEvolutionChamber={handleOpenEvolutionChamber}
@@ -863,11 +1158,60 @@ function OracleArenaShell({
     );
   }
 
+  if (screen === 'packs') {
+    return (
+      <>
+        <PackVaultView
+          economy={economy}
+          dailyRewards={dailyRewards}
+          ownedCharacters={ownedCharacters}
+          ownerId={user?.uid ?? 'local-player'}
+          ownerName={profile?.displayName || user?.displayName || 'Arena Tactician'}
+          onOpenStarterPack={handleOpenStarterPack}
+          onClaimPeriodicPack={handleClaimPeriodicPack}
+          onOpenDailyRewards={() => setShowDailyRewardModal(true)}
+          onBuyCreatorCard={handleBuyCreatorCard}
+          onBuyBoosterPack={handleBuyBoosterPack}
+          onCommitBoosterCards={handleCommitBoosterCards}
+          onOpenStudio={() => setScreen('studio')}
+          onOpenBlindClash={() => setScreen('blind-clash')}
+          onOpenCollection={() => setScreen('collection')}
+          onBackToTitle={() => setScreen('title')}
+        />
+        <DailyRewardModal
+          isOpen={showDailyRewardModal}
+          rewardState={dailyRewards}
+          currentShards={economy.localShards}
+          cloudSynced={Boolean(user)}
+          onClaimToday={handleClaimDailyReward}
+          onClose={() => setShowDailyRewardModal(false)}
+        />
+      </>
+    );
+  }
+
+  if (screen === 'blind-clash') {
+    return (
+      <BlindClashView
+        ownedCharacters={ownedCharacters}
+        economy={economy}
+        onCompleteBlindClash={handleCompleteBlindClash}
+        onOpenPackVault={() => setScreen('packs')}
+        onOpenStudio={() => setScreen('studio')}
+        onBackToTitle={() => setScreen('title')}
+      />
+    );
+  }
+
   if (screen === 'studio') {
     return (
       <OracleStudio
         existingCollection={allCharacters}
+        economy={economy}
+        onSpendCreatorCard={handleSpendCreatorCard}
+        onBuyCreatorCard={handleBuyCreatorCard}
         onApproveCard={handleApproveCustomCard}
+        onOpenPackVault={() => setScreen('packs')}
         onOpenCollection={() => setScreen('collection')}
         onBackToTitle={() => setScreen('title')}
       />
@@ -890,9 +1234,15 @@ function OracleArenaShell({
   if (screen === 'trading') {
     return (
       <TradingHubView
-        tradableCatalog={activeTradableCatalog}
-        syncingCloud={syncingCloud}
+        ownedCharacters={
+          ownedCharacters.length > 0 ? ownedCharacters : allCharacters
+        }
+        onSwapLocalCard={handleSwapLocalCard}
         onOpenMarketplace={() => setScreen('marketplace')}
+        onOpenSocial={() => {
+          setSocialInitialTab('friends');
+          setScreen('social');
+        }}
         onOpenStudio={() => setScreen('studio')}
         onOpenCollection={() => setScreen('collection')}
         onBackToTitle={() => setScreen('title')}
@@ -903,10 +1253,12 @@ function OracleArenaShell({
   if (screen === 'collection') {
     return (
       <CollectionView
-        characters={allCharacters}
+        characters={ownedCharacters.length > 0 ? ownedCharacters : allCharacters}
         selectedSquadIds={squadIds}
         onChangeSquad={handleSquadChange}
         onDeleteCustomCard={handleDeleteCustomCard}
+        onOpenPackVault={() => setScreen('packs')}
+        onOpenBlindClash={() => setScreen('blind-clash')}
         onOpenStudio={() => setScreen('studio')}
         onOpenEvolutionChamber={handleOpenEvolutionChamber}
         onOpenMarketplace={() => setScreen('marketplace')}
@@ -971,28 +1323,46 @@ function OracleArenaShell({
   }
 
   return (
-    <TitleScreen
-      onStartBattle={handleStartBattle}
-      onOpenMultiplayer={() => setScreen('multiplayer')}
-      onOpenStudio={() => setScreen('studio')}
-      onOpenCollection={() => setScreen('collection')}
-      onOpenEvolutionChamber={() => handleOpenEvolutionChamber()}
-      onOpenMarketplace={() => setScreen('marketplace')}
-      onOpenTradingHub={() => setScreen('trading')}
-      onOpenSocial={() => {
-        setSocialInitialTab('rankings');
-        setScreen('social');
-      }}
-      onOpenLeaderboard={() => {
-        setSocialInitialTab('leaderboard');
-        setScreen('social');
-      }}
-      onOpenReplay={handleOpenReplay}
-      onOpenAnalytics={() => setScreen('analytics')}
-      recentMatches={matchHistory}
-      customCardCount={customCardCount}
-      syncingCloud={syncingCloud}
-    />
+    <>
+      <TitleScreen
+        economy={economy}
+        dailyRewards={dailyRewards}
+        dailyRewardModalOpen={showDailyRewardModal}
+        ownedCardCount={ownedCharacters.length}
+        onOpenDailyRewards={() => setShowDailyRewardModal(true)}
+        onOpenPackVault={() => setScreen('packs')}
+        onOpenBlindClash={() => setScreen('blind-clash')}
+        onStartBattle={handleStartBattle}
+        onOpenGauntlet={() => setScreen('gauntlet')}
+        onOpenMultiplayer={() => setScreen('multiplayer')}
+        onOpenStudio={() => setScreen('studio')}
+        onOpenCollection={() => setScreen('collection')}
+        onOpenEvolutionChamber={() => handleOpenEvolutionChamber()}
+        onOpenMarketplace={() => setScreen('marketplace')}
+        onOpenTradingHub={() => setScreen('trading')}
+        onOpenSocial={() => {
+          setSocialInitialTab('rankings');
+          setScreen('social');
+        }}
+        onOpenLeaderboard={() => {
+          setSocialInitialTab('leaderboard');
+          setScreen('social');
+        }}
+        onOpenReplay={handleOpenReplay}
+        onOpenAnalytics={() => setScreen('analytics')}
+        recentMatches={matchHistory}
+        customCardCount={customCardCount}
+        syncingCloud={syncingCloud}
+      />
+      <DailyRewardModal
+        isOpen={showDailyRewardModal}
+        rewardState={dailyRewards}
+        currentShards={economy.localShards}
+        cloudSynced={Boolean(user)}
+        onClaimToday={handleClaimDailyReward}
+        onClose={() => setShowDailyRewardModal(false)}
+      />
+    </>
   );
 }
 

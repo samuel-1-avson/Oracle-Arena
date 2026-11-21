@@ -597,7 +597,13 @@ export function buildMatchReplayTimeline(
     substitutedCharacterIds
   );
 
-  const initialState = createBattle(playerSquad, enemySquad, summary.seed);
+  const hasUnitSnapshots = Boolean(
+    summary.replayUnitSnapshots &&
+      Object.keys(summary.replayUnitSnapshots).length > 0
+  );
+  const initialState = createBattle(playerSquad, enemySquad, summary.seed, {
+    skipSynergy: hasUnitSnapshots,
+  });
 
   const frames: ReplayFrame[] = [
     {

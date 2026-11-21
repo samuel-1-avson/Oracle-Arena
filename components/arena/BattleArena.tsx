@@ -2,11 +2,13 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
+import { motion } from 'motion/react';
 import {
   AlertTriangle,
   ArrowUpCircle,
   Bot,
   Check,
+  Crown,
   FastForward,
   Film,
   Flag,
@@ -16,6 +18,7 @@ import {
   RotateCcw,
   ScrollText,
   Shield,
+  Sparkles,
   Swords,
   Trophy,
   Users,
@@ -36,6 +39,10 @@ import {
   getValidTargets,
 } from '@/lib/game/engine';
 import {
+  GauntletBossEncounter,
+  recordGauntletVictory,
+} from '@/lib/game/gauntlet';
+import {
   getOrientedTeams,
   hasActiveBattleState,
   MultiplayerBattleContext,
@@ -44,6 +51,10 @@ import { BattleXpGrant } from '@/lib/game/progression';
 import { createReplayMetadataFromBattle } from '@/lib/game/replay';
 import { getCharacterById } from '@/lib/game/roster';
 import { soundEngine } from '@/lib/game/sound';
+import {
+  computeSquadSynergies,
+  getElementalMatchup,
+} from '@/lib/game/synergy';
 import {
   AbilityDefinition,
   BattleAction,
@@ -54,6 +65,12 @@ import {
 } from '@/lib/game/types';
 import { BattleCard, FloatingCallout } from './BattleCard';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import {
+  CombatProjectile,
+  CombatVfxLayer,
+  getProjectilePalette,
+  UltimateCutInData,
+} from './CombatVfxLayer';
 import { formatTargetLabel } from './ui-meta';
 
 interface BattleArenaProps {
@@ -61,6 +78,7 @@ interface BattleArenaProps {
   playerSquad: CharacterDefinition[];
   enemySquad: CharacterDefinition[];
   initialSeed?: number;
+  bossEncounter?: GauntletBossEncounter | null;
   multiplayerContext?: MultiplayerBattleContext;
   onMatchFinished: (
     summary: MatchSummaryRecord,
@@ -72,6 +90,8 @@ interface BattleArenaProps {
       opponentName?: string;
     }
   ) => BattleXpGrant[];
+  onBossCleared?: (encounterId: string, turnsTaken: number) => void;
+  onOpenGauntlet?: () => void;
   onOpenCollection: () => void;
   onOpenEvolutionChamber: (focusDefId?: string) => void;
   onOpenMatchReplay?: (matchId: string) => void;
@@ -88,8 +108,11 @@ export function BattleArena({
   playerSquad,
   enemySquad,
   initialSeed = 42026,
+  bossEncounter = null,
   multiplayerContext,
   onMatchFinished,
+  onBossCleared,
+  onOpenGauntlet,
   onOpenCollection,
   onOpenEvolutionChamber,
   onOpenMatchReplay,
@@ -100,7 +123,9 @@ export function BattleArena({
   const viewerSide: TeamSide = multiplayerContext?.viewerSide ?? 'player';
 
   const [localBattle, setLocalBattle] = useState<BattleState>(() =>
-    createBattle(playerSquad, enemySquad, initialSeed)
+    createBattle(playerSquad, enemySquad, initialSeed, {
+      bossEncounter: bossEncounter ?? undefined,
+    })
   );
 
   const battle: BattleState =
@@ -122,15 +147,28 @@ export function BattleArena({
     Record<string, 'damage' | 'heal' | 'shield'>
   >({});
   const [callouts, setCallouts] = useState<FloatingCallout[]>([]);
+  const [projectiles, setProjectiles] = useState<CombatProjectile[]>([]);
+  const [lungeState, setLungeState] = useState<{
+    unitId: string;
+    direction: 'up' | 'down';
+  } | null>(null);
+  const [screenShake, setScreenShake] = useState<'crit' | 'ko' | null>(null);
+  const [ultimateBanner, setUltimateBanner] =
+    useState<UltimateCutInData | null>(null);
   const [matchSnapshot, setMatchSnapshot] = useState<MatchSummaryRecord | null>(
     null
   );
   const [xpGrants, setXpGrants] = useState<BattleXpGrant[]>([]);
 
+  const stageRef = useRef<HTMLElement | null>(null);
   const recordedMatchIdRef = useRef<string | null>(null);
   const lastFeedbackTurnRef = useRef<number>(battle.turnNumber);
   const flashTimerRef = useRef<number | null>(null);
   const calloutTimerRef = useRef<number | null>(null);
+  const vfxTimerRef = useRef<number | null>(null);
+  const lungeTimerRef = useRef<number | null>(null);
+  const shakeTimerRef = useRef<number | null>(null);
+  const ultimateTimerRef = useRef<number | null>(null);
 
   // Determine effective match completion (including PvP forfeit)
   const effectiveWinner: TeamSide | null =
@@ -190,6 +228,15 @@ export function BattleArena({
     [battle.units, viewerSide]
   );
 
+  const playerSynergies = useMemo(
+    () => computeSquadSynergies(playerUnits),
+    [playerUnits]
+  );
+  const enemySynergies = useMemo(
+    () => computeSquadSynergies(enemyUnits),
+    [enemyUnits]
+  );
+
   // Sync body state attribute cleanly
   useEffect(() => {
     if (isMatchOver) {
@@ -202,103 +249,235 @@ export function BattleArena({
   }, [isMatchOver, paused, onStateChange]);
 
   // Trigger audio + visual impact juice for a resolved action
-  const triggerActionFeedback = useCallback((nextState: BattleState) => {
-    const newFlashes: Record<string, 'damage' | 'heal' | 'shield'> = {};
-    const newCallouts: FloatingCallout[] = [];
-    let soundToPlay:
-      | 'attack'
-      | 'heavy'
-      | 'heal'
-      | 'shield'
-      | 'guard'
-      | 'ko'
-      | null = null;
+  const triggerActionFeedback = useCallback(
+    (nextState: BattleState) => {
+      const newFlashes: Record<string, 'damage' | 'heal' | 'shield'> = {};
+      const newCallouts: FloatingCallout[] = [];
+      const nextProjectiles: CombatProjectile[] = [];
+      let soundToPlay:
+        | 'attack'
+        | 'heavy'
+        | 'heal'
+        | 'shield'
+        | 'guard'
+        | 'ko'
+        | null = null;
+      let shakeMode: 'crit' | 'ko' | null = null;
 
-    for (const evt of nextState.lastTurnEvents) {
-      if (evt.kind === 'damage' && evt.targetId && evt.amount !== undefined) {
-        newFlashes[evt.targetId] = 'damage';
-        newCallouts.push({
-          id: evt.id,
-          unitId: evt.targetId,
-          text: `-${evt.amount}${
-            evt.shieldAbsorbed ? ` (${evt.shieldAbsorbed} shd)` : ''
-          }`,
-          tone: 'damage',
+      const actionEvt = nextState.lastTurnEvents.find(
+        (e) => e.kind === 'action_used'
+      );
+      const actorUnit = actionEvt?.actorId
+        ? nextState.units.find((u) => u.instanceId === actionEvt.actorId)
+        : undefined;
+      const usedAbility =
+        actorUnit && actionEvt?.abilityId
+          ? getAllUnitAbilities(actorUnit).find(
+              (a) => a.id === actionEvt.abilityId
+            )
+          : undefined;
+
+      const isUltimateCast = usedAbility?.category === 'ultimate';
+
+      // Measure real DOM card coordinates inside stageRef for directional trails
+      const stageEl = stageRef.current;
+      const stageRect = stageEl?.getBoundingClientRect() ?? null;
+      const getCardCenter = (unitId: string): { x: number; y: number } | null => {
+        if (!stageEl || !stageRect) return null;
+        const el = stageEl.querySelector(
+          `[data-testid="battle-unit-${unitId}"]`
+        );
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return {
+          x: rect.left - stageRect.left + rect.width / 2,
+          y: rect.top - stageRect.top + rect.height / 2,
+        };
+      };
+
+      const actorCenter = actorUnit
+        ? getCardCenter(actorUnit.instanceId)
+        : null;
+      const seenTrailKeys = new Set<string>();
+
+      const pushProjectile = (
+        targetId: string,
+        kind: 'damage' | 'heal' | 'shield',
+        opts?: { isCritical?: boolean; isResonant?: boolean }
+      ) => {
+        if (!actorUnit || !actorCenter) return;
+        const key = `${targetId}:${kind}`;
+        if (seenTrailKeys.has(key)) return;
+        seenTrailKeys.add(key);
+
+        const targetCenter = getCardCenter(targetId);
+        if (!targetCenter) return;
+
+        const dx = targetCenter.x - actorCenter.x;
+        const dy = targetCenter.y - actorCenter.y;
+        const midX = (actorCenter.x + targetCenter.x) / 2;
+        const midY = (actorCenter.y + targetCenter.y) / 2;
+        const curveSign = dx >= 0 ? -1 : 1;
+        const arcOffset = Math.min(110, Math.max(36, Math.hypot(dx, dy) * 0.24));
+        const palette = getProjectilePalette(kind, actorUnit.element);
+
+        nextProjectiles.push({
+          id: `${nextState.turnNumber}-${actorUnit.instanceId}-${targetId}-${kind}`,
+          x1: actorCenter.x,
+          y1: actorCenter.y,
+          x2: targetCenter.x,
+          y2: targetCenter.y,
+          cx: midX + curveSign * arcOffset * 0.6,
+          cy: midY - arcOffset * 0.42,
+          kind,
+          color: palette.color,
+          glowColor: palette.glowColor,
+          isCritical: opts?.isCritical,
+          isUltimate: isUltimateCast,
+          isResonant: opts?.isResonant,
         });
-        if (evt.amount >= 95) {
-          soundToPlay = 'heavy';
-        } else if (!soundToPlay) {
-          soundToPlay = 'attack';
+      };
+
+      for (const evt of nextState.lastTurnEvents) {
+        if (evt.kind === 'damage' && evt.targetId && evt.amount !== undefined) {
+          newFlashes[evt.targetId] = 'damage';
+          const isResonant = evt.elementalRelation === 'advantage';
+          const isCrit = Boolean(evt.isCritical) || evt.amount >= 95;
+          newCallouts.push({
+            id: evt.id,
+            unitId: evt.targetId,
+            text: `-${evt.amount}${isResonant ? ' RESONANT' : ''}${
+              evt.shieldAbsorbed ? ` (${evt.shieldAbsorbed} shd)` : ''
+            }`,
+            tone: isResonant ? 'resonant' : 'damage',
+          });
+          pushProjectile(evt.targetId, 'damage', {
+            isCritical: isCrit,
+            isResonant,
+          });
+          if (isCrit) {
+            soundToPlay = 'heavy';
+            if (shakeMode !== 'ko') shakeMode = 'crit';
+          } else if (!soundToPlay) {
+            soundToPlay = 'attack';
+          }
+        } else if (
+          evt.kind === 'heal' &&
+          evt.targetId &&
+          evt.amount !== undefined &&
+          evt.amount > 0
+        ) {
+          newFlashes[evt.targetId] = 'heal';
+          newCallouts.push({
+            id: evt.id,
+            unitId: evt.targetId,
+            text: `+${evt.amount} HP`,
+            tone: 'heal',
+          });
+          pushProjectile(evt.targetId, 'heal');
+          if (!soundToPlay) soundToPlay = 'heal';
+        } else if (
+          evt.kind === 'shield' &&
+          evt.targetId &&
+          evt.amount !== undefined
+        ) {
+          if (!newFlashes[evt.targetId]) newFlashes[evt.targetId] = 'shield';
+          newCallouts.push({
+            id: evt.id,
+            unitId: evt.targetId,
+            text: `+${evt.amount} SHD`,
+            tone: 'shield',
+          });
+          pushProjectile(evt.targetId, 'shield');
+          if (!soundToPlay) {
+            soundToPlay =
+              evt.abilityId === 'standard_guard' ? 'guard' : 'shield';
+          }
+        } else if (evt.kind === 'ko' && evt.targetId) {
+          newCallouts.push({
+            id: evt.id,
+            unitId: evt.targetId,
+            text: 'DEFEATED',
+            tone: 'ko',
+          });
+          soundToPlay = 'ko';
+          shakeMode = 'ko';
+        } else if (evt.kind === 'stunned' && evt.targetId) {
+          newCallouts.push({
+            id: evt.id,
+            unitId: evt.targetId,
+            text: 'STUNNED',
+            tone: 'status',
+          });
         }
-      } else if (
-        evt.kind === 'heal' &&
-        evt.targetId &&
-        evt.amount !== undefined &&
-        evt.amount > 0
-      ) {
-        newFlashes[evt.targetId] = 'heal';
-        newCallouts.push({
-          id: evt.id,
-          unitId: evt.targetId,
-          text: `+${evt.amount} HP`,
-          tone: 'heal',
-        });
-        if (!soundToPlay) soundToPlay = 'heal';
-      } else if (
-        evt.kind === 'shield' &&
-        evt.targetId &&
-        evt.amount !== undefined
-      ) {
-        if (!newFlashes[evt.targetId]) newFlashes[evt.targetId] = 'shield';
-        newCallouts.push({
-          id: evt.id,
-          unitId: evt.targetId,
-          text: `+${evt.amount} SHD`,
-          tone: 'shield',
-        });
-        if (!soundToPlay) {
-          soundToPlay =
-            evt.abilityId === 'standard_guard' ? 'guard' : 'shield';
-        }
-      } else if (evt.kind === 'ko' && evt.targetId) {
-        newCallouts.push({
-          id: evt.id,
-          unitId: evt.targetId,
-          text: 'DEFEATED',
-          tone: 'ko',
-        });
-        soundToPlay = 'ko';
-      } else if (evt.kind === 'stunned' && evt.targetId) {
-        newCallouts.push({
-          id: evt.id,
-          unitId: evt.targetId,
-          text: 'STUNNED',
-          tone: 'status',
-        });
       }
-    }
 
-    if (nextState.phase === 'victory') {
-      soundEngine.play('victory');
-    } else if (nextState.phase === 'defeat') {
-      soundEngine.play('defeat');
-    } else if (soundToPlay) {
-      soundEngine.play(soundToPlay);
-    }
+      if (nextState.phase === 'victory') {
+        soundEngine.play('victory');
+      } else if (nextState.phase === 'defeat') {
+        soundEngine.play('defeat');
+      } else if (soundToPlay) {
+        soundEngine.play(soundToPlay);
+      }
 
-    if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
-    if (calloutTimerRef.current) window.clearTimeout(calloutTimerRef.current);
+      if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
+      if (calloutTimerRef.current) window.clearTimeout(calloutTimerRef.current);
+      if (vfxTimerRef.current) window.clearTimeout(vfxTimerRef.current);
+      if (lungeTimerRef.current) window.clearTimeout(lungeTimerRef.current);
+      if (shakeTimerRef.current) window.clearTimeout(shakeTimerRef.current);
 
-    setHitFlashes(newFlashes);
-    setCallouts(newCallouts);
+      setHitFlashes(newFlashes);
+      setCallouts(newCallouts);
+      setProjectiles(nextProjectiles);
 
-    flashTimerRef.current = window.setTimeout(() => {
-      setHitFlashes({});
-    }, 360);
-    calloutTimerRef.current = window.setTimeout(() => {
-      setCallouts([]);
-    }, 1050);
-  }, []);
+      if (actorUnit) {
+        setLungeState({
+          unitId: actorUnit.instanceId,
+          direction: actorUnit.side === viewerSide ? 'up' : 'down',
+        });
+        lungeTimerRef.current = window.setTimeout(() => {
+          setLungeState(null);
+        }, 380);
+      }
+
+      if (shakeMode || isUltimateCast) {
+        setScreenShake(shakeMode ?? 'crit');
+        shakeTimerRef.current = window.setTimeout(() => {
+          setScreenShake(null);
+        }, 380);
+      }
+
+      if (isUltimateCast && actorUnit && usedAbility) {
+        if (ultimateTimerRef.current) {
+          window.clearTimeout(ultimateTimerRef.current);
+        }
+        setUltimateBanner({
+          id: `${nextState.turnNumber}-${usedAbility.id}`,
+          actorName: actorUnit.name,
+          actorTitle: actorUnit.title,
+          artworkUrl: actorUnit.artworkUrl,
+          element: actorUnit.element,
+          abilityName: usedAbility.name,
+          side: actorUnit.side,
+          isViewerAlly: actorUnit.side === viewerSide,
+        });
+        ultimateTimerRef.current = window.setTimeout(() => {
+          setUltimateBanner(null);
+        }, 950);
+      }
+
+      flashTimerRef.current = window.setTimeout(() => {
+        setHitFlashes({});
+      }, 360);
+      vfxTimerRef.current = window.setTimeout(() => {
+        setProjectiles([]);
+      }, 620);
+      calloutTimerRef.current = window.setTimeout(() => {
+        setCallouts([]);
+      }, 1080);
+    },
+    [viewerSide]
+  );
 
   // Trigger feedback whenever a remote PvP turn arrives from Firestore
   useEffect(() => {
@@ -328,6 +507,11 @@ export function BattleArena({
         viewerSide,
         allCharacters
       );
+      const opponentLabel =
+        multiplayerContext?.opponentName ??
+        (bossEncounter
+          ? `${bossEncounter.bossName} (${bossEncounter.title})`
+          : 'Arena AI Vanguard');
       const summary: MatchSummaryRecord = {
         matchId: recordKey,
         seed: battle.seed,
@@ -351,15 +535,19 @@ export function BattleArena({
         ),
         rulesetVersion: battle.rulesetVersion,
         mode: isMultiplayer ? 'multiplayer' : 'solo',
-        opponentName: multiplayerContext?.opponentName ?? 'Arena AI Vanguard',
+        opponentName: opponentLabel,
         ...replayMeta,
       };
       setMatchSnapshot(summary);
+      if (bossEncounter && effectiveWinner === viewerSide) {
+        recordGauntletVictory(bossEncounter.id, battle.turnNumber);
+        onBossCleared?.(bossEncounter.id, battle.turnNumber);
+      }
       const grants = onMatchFinished(summary, battle, {
         mode: isMultiplayer ? 'multiplayer' : 'solo',
         viewerSide,
         overrideWinner: endedByForfeit ? effectiveWinner : undefined,
-        opponentName: multiplayerContext?.opponentName ?? 'Arena AI Vanguard',
+        opponentName: opponentLabel,
       });
       setXpGrants(grants);
     }
@@ -371,6 +559,8 @@ export function BattleArena({
     viewerSide,
     isMultiplayer,
     multiplayerContext,
+    bossEncounter,
+    onBossCleared,
     onMatchFinished,
     allCharacters,
   ]);
@@ -426,6 +616,10 @@ export function BattleArena({
     return () => {
       if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
       if (calloutTimerRef.current) window.clearTimeout(calloutTimerRef.current);
+      if (vfxTimerRef.current) window.clearTimeout(vfxTimerRef.current);
+      if (lungeTimerRef.current) window.clearTimeout(lungeTimerRef.current);
+      if (shakeTimerRef.current) window.clearTimeout(shakeTimerRef.current);
+      if (ultimateTimerRef.current) window.clearTimeout(ultimateTimerRef.current);
     };
   }, []);
 
@@ -436,12 +630,20 @@ export function BattleArena({
     setSelectedAbilityId(null);
     setHitFlashes({});
     setCallouts([]);
+    setProjectiles([]);
+    setLungeState(null);
+    setScreenShake(null);
+    setUltimateBanner(null);
     setMatchSnapshot(null);
     setXpGrants([]);
     setShowReplayInEndModal(false);
     recordedMatchIdRef.current = null;
-    setLocalBattle(createBattle(playerSquad, enemySquad, generateMatchSeed()));
-  }, [isMultiplayer, playerSquad, enemySquad]);
+    setLocalBattle(
+      createBattle(playerSquad, enemySquad, generateMatchSeed(), {
+        bossEncounter: bossEncounter ?? undefined,
+      })
+    );
+  }, [isMultiplayer, playerSquad, enemySquad, bossEncounter]);
 
   const handleSelectAbility = useCallback(
     (ability: AbilityDefinition) => {
@@ -798,38 +1000,113 @@ export function BattleArena({
         </div>
       </div>
 
-      {/* MAIN 5v5 BATTLEFIELD */}
-      <main className="relative z-10 flex-1 w-full max-w-[1400px] mx-auto px-3 sm:px-6 py-2 flex flex-col justify-between gap-2">
+      {/* MAIN 5v5 BATTLEFIELD (with micro screen-shake & Combat VFX layer) */}
+      <motion.main
+        ref={stageRef}
+        animate={
+          screenShake === 'ko'
+            ? { x: [0, -7, 7, -5, 4, 0], y: [0, 3, -3, 2, 0] }
+            : screenShake === 'crit'
+              ? { x: [0, -4, 4, -2, 0], y: [0, 1.5, -1.5, 0] }
+              : { x: 0, y: 0 }
+        }
+        transition={{ duration: 0.34, ease: 'easeOut' }}
+        className="relative z-10 flex-1 w-full max-w-[1400px] mx-auto px-3 sm:px-6 py-2 flex flex-col justify-between gap-2"
+      >
+        <CombatVfxLayer
+          projectiles={projectiles}
+          ultimateBanner={ultimateBanner}
+        />
+
+        {/* Boss Encounter Passive Banner (when fighting a Gauntlet Boss) */}
+        {battle.bossEncounter && (
+          <div
+            data-testid="boss-encounter-banner"
+            className="rounded-md bg-gradient-to-r from-[#1A1324] via-[#1B1418] to-[#131724] border border-amber-400/45 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2.5"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Crown className="w-4 h-4 text-[#F5DC8B] shrink-0" />
+              <span className="font-display text-xs sm:text-sm font-bold text-[#F5DC8B] whitespace-nowrap">
+                {battle.bossEncounter.title}: {battle.bossEncounter.bossName}
+              </span>
+              <span className="text-white/25 hidden sm:inline">·</span>
+              <span className="text-xs text-amber-200/90 truncate">
+                <strong className="font-semibold text-[#F5EFE0]">
+                  {battle.bossEncounter.bossPassiveName}:
+                </strong>{' '}
+                {battle.bossEncounter.bossPassiveDescription}
+              </span>
+            </div>
+            <span className="text-[11px] font-mono uppercase tracking-wider text-rose-300 shrink-0">
+              {bossEncounter?.difficulty ?? `Stage ${battle.bossEncounter.stage}`}
+            </span>
+          </div>
+        )}
+
         {/* ENEMY FORMATION (TOP 5) */}
         <section aria-label="Opposing Squad" className="space-y-1">
-          <div className="flex items-center justify-between text-xs text-[#9CA3B8]">
-            <span className="font-semibold text-rose-300 tracking-wide">
-              {multiplayerContext
-                ? `${multiplayerContext.opponentName}'s Vanguard`
-                : 'Opposing Vanguard'}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#9CA3B8]">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-rose-300 tracking-wide">
+                {multiplayerContext
+                  ? `${multiplayerContext.opponentName}'s Vanguard`
+                  : battle.bossEncounter
+                    ? `${battle.bossEncounter.bossName}'s Legion`
+                    : 'Opposing Vanguard'}
+              </span>
+              {enemySynergies.synergies.map((syn) => (
+                <span
+                  key={syn.id}
+                  title={syn.description}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/12 border border-rose-400/30 text-[10px] font-mono text-rose-200"
+                >
+                  <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                  <span>{syn.name}</span>
+                </span>
+              ))}
+            </div>
             <span className="font-mono tabular-nums">
               {enemyUnits.filter((u) => u.alive).length}/5 Standing
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
-            {enemyUnits.map((unit) => (
-              <BattleCard
-                key={unit.instanceId}
-                unit={unit}
-                isActive={battle.activeUnitId === unit.instanceId}
-                isTargetable={
-                  isPlayerTurn &&
-                  !autoBattle &&
-                  validTargetIds.has(unit.instanceId)
-                }
-                isSelectedTarget={false}
-                hitFlash={hitFlashes[unit.instanceId] ?? null}
-                callouts={callouts.filter((c) => c.unitId === unit.instanceId)}
-                onSelectTarget={handleTargetClick}
-                onInspect={(defId) => setInspectDefId(defId)}
-              />
-            ))}
+            {enemyUnits.map((unit) => {
+              const targetable =
+                isPlayerTurn && !autoBattle && validTargetIds.has(unit.instanceId);
+              const matchup =
+                targetable &&
+                activeUnit &&
+                selectedAbility &&
+                selectedAbility.damageMultiplier > 0
+                  ? getElementalMatchup(activeUnit.element, unit.element)
+                  : null;
+              return (
+                <BattleCard
+                  key={unit.instanceId}
+                  unit={unit}
+                  isActive={battle.activeUnitId === unit.instanceId}
+                  isTargetable={targetable}
+                  isSelectedTarget={false}
+                  hitFlash={hitFlashes[unit.instanceId] ?? null}
+                  lungeDirection={
+                    lungeState?.unitId === unit.instanceId
+                      ? lungeState.direction
+                      : null
+                  }
+                  isBoss={
+                    battle.bossEncounter?.bossUnitInstanceId === unit.instanceId
+                  }
+                  elementalHint={
+                    matchup && matchup.relation !== 'neutral'
+                      ? matchup.relation
+                      : null
+                  }
+                  callouts={callouts.filter((c) => c.unitId === unit.instanceId)}
+                  onSelectTarget={handleTargetClick}
+                  onInspect={(defId) => setInspectDefId(defId)}
+                />
+              );
+            })}
           </div>
         </section>
 
@@ -912,12 +1189,24 @@ export function BattleArena({
 
         {/* PLAYER FORMATION (BOTTOM 5) */}
         <section aria-label="Allied Squad" className="space-y-1">
-          <div className="flex items-center justify-between text-xs text-[#9CA3B8]">
-            <span className="font-semibold text-sky-300 tracking-wide">
-              {multiplayerContext
-                ? `Your Squad (${multiplayerContext.viewerName})`
-                : 'Your Squad'}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#9CA3B8]">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-sky-300 tracking-wide">
+                {multiplayerContext
+                  ? `Your Squad (${multiplayerContext.viewerName})`
+                  : 'Your Squad'}
+              </span>
+              {playerSynergies.synergies.map((syn) => (
+                <span
+                  key={syn.id}
+                  title={syn.description}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-500/12 border border-sky-400/35 text-[10px] font-mono text-sky-200"
+                >
+                  <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                  <span>{syn.name}</span>
+                </span>
+              ))}
+            </div>
             <span className="font-mono tabular-nums">
               {playerUnits.filter((u) => u.alive).length}/5 Standing
             </span>
@@ -935,6 +1224,11 @@ export function BattleArena({
                 }
                 isSelectedTarget={false}
                 hitFlash={hitFlashes[unit.instanceId] ?? null}
+                lungeDirection={
+                  lungeState?.unitId === unit.instanceId
+                    ? lungeState.direction
+                    : null
+                }
                 callouts={callouts.filter((c) => c.unitId === unit.instanceId)}
                 onSelectTarget={handleTargetClick}
                 onInspect={(defId) => setInspectDefId(defId)}
@@ -942,7 +1236,7 @@ export function BattleArena({
             ))}
           </div>
         </section>
-      </main>
+      </motion.main>
 
       {/* UNIFIED BOTTOM COMMAND DOCK */}
       <section
@@ -1281,9 +1575,13 @@ export function BattleArena({
                     : didViewerWin
                       ? `You defeated ${multiplayerContext.opponentName} in live 5v5 PvP (+${multiplayerContext.eloDeltaPreview.win} ELO).`
                       : `${multiplayerContext.opponentName} prevailed in live 5v5 PvP (${multiplayerContext.eloDeltaPreview.loss} ELO).`
-                  : didViewerWin
-                    ? 'Your five-champion formation prevailed in the arena.'
-                    : 'Your squad fell. Adjust your lineup or tactics and challenge again.'}
+                  : bossEncounter
+                    ? didViewerWin
+                      ? `Boss Conquered! You cleared ${bossEncounter.title} against ${bossEncounter.bossName} (+${bossEncounter.rewardShards} Shards bonus).`
+                      : `${bossEncounter.bossName} held the arena in ${bossEncounter.title}. Tune your squad synergies and counter their passive!`
+                    : didViewerWin
+                      ? 'Your five-champion formation prevailed in the arena.'
+                      : 'Your squad fell. Adjust your lineup or tactics and challenge again.'}
               </p>
             </div>
 
@@ -1473,6 +1771,26 @@ export function BattleArena({
                     <Users className="w-4 h-4" />
                     <span>Multiplayer Lobby</span>
                   </button>
+                ) : bossEncounter && onOpenGauntlet ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onOpenGauntlet}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold rounded-md bg-amber-500/20 border border-amber-400/50 text-[#F5DC8B] hover:bg-amber-500/30 transition-colors cursor-pointer"
+                    >
+                      <Crown className="w-4 h-4 shrink-0" />
+                      <span>Boss Gauntlet</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-start="true"
+                      onClick={handleRestartMatch}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-md bg-[#D4AF37] text-[#0B0D13] hover:bg-[#E5C454] transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>Rematch Boss</span>
+                    </button>
+                  </>
                 ) : (
                   <button
                     type="button"

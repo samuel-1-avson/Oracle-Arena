@@ -2,7 +2,9 @@
 
 import React from 'react';
 import Image from 'next/image';
+import { motion } from 'motion/react';
 import {
+  Crown,
   Flame,
   Heart,
   Info,
@@ -17,7 +19,7 @@ export interface FloatingCallout {
   id: string;
   unitId: string;
   text: string;
-  tone: 'damage' | 'heal' | 'shield' | 'status' | 'ko';
+  tone: 'damage' | 'heal' | 'shield' | 'status' | 'ko' | 'resonant';
 }
 
 interface BattleCardProps {
@@ -26,6 +28,9 @@ interface BattleCardProps {
   isTargetable: boolean;
   isSelectedTarget: boolean;
   hitFlash: 'damage' | 'heal' | 'shield' | null;
+  lungeDirection?: 'up' | 'down' | null;
+  isBoss?: boolean;
+  elementalHint?: 'advantage' | 'disadvantage' | null;
   callouts: FloatingCallout[];
   onSelectTarget: (unitId: string) => void;
   onInspect: (definitionId: string) => void;
@@ -37,6 +42,9 @@ export function BattleCard({
   isTargetable,
   isSelectedTarget,
   hitFlash,
+  lungeDirection = null,
+  isBoss = false,
+  elementalHint = null,
   callouts,
   onSelectTarget,
   onInspect,
@@ -67,9 +75,11 @@ export function BattleCard({
         : 'border-sky-400 shadow-[0_0_24px_rgba(56,189,248,0.38)] ring-2 ring-sky-400/50 -translate-y-1'
       : isActive
         ? 'border-[#E5C158] shadow-[0_0_28px_rgba(212,175,55,0.36)] ring-2 ring-[#D4AF37]/45 -translate-y-1.5'
-        : isSelectedTarget
-          ? 'border-amber-300 shadow-[0_0_18px_rgba(251,191,36,0.3)]'
-          : 'border-white/15 hover:border-white/30';
+        : isBoss
+          ? 'border-amber-400/80 shadow-[0_0_24px_rgba(245,158,11,0.28)] ring-1 ring-amber-400/40'
+          : isSelectedTarget
+            ? 'border-amber-300 shadow-[0_0_18px_rgba(251,191,36,0.3)]'
+            : 'border-white/15 hover:border-white/30';
 
   const flashOverlay =
     hitFlash === 'damage'
@@ -80,13 +90,25 @@ export function BattleCard({
           ? 'bg-sky-400/30'
           : '';
 
+  const lungeAnimation =
+    lungeDirection === 'up'
+      ? { y: [0, -18, 0], scale: [1, 1.045, 1] }
+      : lungeDirection === 'down'
+        ? { y: [0, 18, 0], scale: [1, 1.045, 1] }
+        : hitFlash === 'damage'
+          ? { x: [0, -5, 5, -3, 0] }
+          : { x: 0, y: 0, scale: 1 };
+
   return (
-    <div
+    <motion.div
       data-testid={`battle-unit-${unit.instanceId}`}
       data-side={unit.side}
       data-alive={unit.alive ? 'true' : 'false'}
       data-active={isActive ? 'true' : 'false'}
-      className={`relative flex flex-col rounded-lg bg-[#121622] border transition-all duration-200 select-none ${frameClasses}`}
+      data-boss={isBoss ? 'true' : 'false'}
+      animate={lungeAnimation}
+      transition={{ duration: 0.34, ease: 'easeOut' }}
+      className={`relative flex flex-col rounded-lg bg-[#121622] border transition-colors duration-200 select-none ${frameClasses}`}
     >
       {/* Floating Combat Delta Callouts */}
       {callouts.length > 0 && (
@@ -97,16 +119,18 @@ export function BattleCard({
           {callouts.map((c) => (
             <span
               key={c.id}
-              className={`font-mono tabular-nums font-bold text-sm sm:text-base px-2 py-0.5 rounded bg-[#090B10]/90 border border-white/15 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 ${
+              className={`font-mono tabular-nums font-bold text-sm sm:text-base px-2 py-0.5 rounded bg-[#090B10]/95 border border-white/15 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 ${
                 c.tone === 'damage'
                   ? 'text-rose-400'
-                  : c.tone === 'heal'
-                    ? 'text-emerald-300'
-                    : c.tone === 'shield'
-                      ? 'text-sky-300'
-                      : c.tone === 'ko'
-                        ? 'text-amber-300'
-                        : 'text-violet-300'
+                  : c.tone === 'resonant'
+                    ? 'text-[#F5DC8B] border-[#D4AF37]/60'
+                    : c.tone === 'heal'
+                      ? 'text-emerald-300'
+                      : c.tone === 'shield'
+                        ? 'text-sky-300'
+                        : c.tone === 'ko'
+                          ? 'text-amber-300'
+                          : 'text-violet-300'
               }`}
             >
               {c.text}
@@ -159,7 +183,7 @@ export function BattleCard({
             />
           )}
 
-          {/* Top Left Active / Target Indicator (Explicit Text, Never Hue-Only) */}
+          {/* Top Left Active / Target / Boss Indicator (Explicit Text, Never Hue-Only) */}
           <div className="absolute top-1.5 left-2 right-8 z-10 flex items-center justify-between gap-1 text-[11px] font-medium">
             {isActive && unit.alive ? (
               <span className="font-mono font-semibold text-[#F5DC8B] tracking-wide drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
@@ -168,14 +192,27 @@ export function BattleCard({
             ) : isTargetable ? (
               <span
                 className={`font-mono font-semibold tracking-wide drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)] ${
-                  unit.side === 'enemy' ? 'text-rose-300' : 'text-sky-300'
+                  elementalHint === 'advantage'
+                    ? 'text-[#F5DC8B]'
+                    : unit.side === 'enemy'
+                      ? 'text-rose-300'
+                      : 'text-sky-300'
                 }`}
               >
-                SELECT TARGET
+                {elementalHint === 'advantage'
+                  ? 'RESONANT +12%'
+                  : elementalHint === 'disadvantage'
+                    ? 'DAMPENED -6%'
+                    : 'SELECT TARGET'}
               </span>
             ) : !unit.alive ? (
               <span className="font-mono font-semibold text-zinc-400 tracking-wide">
                 DEFEATED
+              </span>
+            ) : isBoss ? (
+              <span className="inline-flex items-center gap-1 font-mono font-bold text-[#F5DC8B] tracking-wider drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)]">
+                <Crown className="w-3 h-3 shrink-0" />
+                <span>BOSS · {unit.element}</span>
               </span>
             ) : (
               <span className={`truncate drop-shadow ${elem.text}`}>
@@ -289,6 +326,6 @@ export function BattleCard({
       >
         <Info className="w-3.5 h-3.5" />
       </button>
-    </div>
+    </motion.div>
   );
 }

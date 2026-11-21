@@ -7,21 +7,41 @@ import {
   ArrowUpCircle,
   BarChart3,
   BookOpen,
+  CalendarDays,
+  Crown,
+  EyeOff,
   Film,
+  Flame,
+  Gift,
   Globe,
   Layers,
+  PackageOpen,
   Sparkles,
   Store,
   Swords,
   Trophy,
   Users,
+  Wand2,
   X,
 } from 'lucide-react';
+import {
+  DailyLoginRewardState,
+  getDailyRewardStatus,
+} from '@/lib/game/daily-rewards';
+import { PlayerEconomyState, XP_PER_ACCOUNT_LEVEL } from '@/lib/game/packs';
 import { MatchSummaryRecord } from '@/lib/game/types';
 import { AccountBar } from './AccountBar';
 
 interface TitleScreenProps {
+  economy: PlayerEconomyState;
+  dailyRewards: DailyLoginRewardState;
+  dailyRewardModalOpen?: boolean;
+  ownedCardCount: number;
+  onOpenDailyRewards: () => void;
+  onOpenPackVault: () => void;
+  onOpenBlindClash: () => void;
   onStartBattle: () => void;
+  onOpenGauntlet: () => void;
   onOpenMultiplayer: () => void;
   onOpenStudio: () => void;
   onOpenCollection: () => void;
@@ -38,7 +58,15 @@ interface TitleScreenProps {
 }
 
 export function TitleScreen({
+  economy,
+  dailyRewards,
+  dailyRewardModalOpen = false,
+  ownedCardCount,
+  onOpenDailyRewards,
+  onOpenPackVault,
+  onOpenBlindClash,
   onStartBattle,
+  onOpenGauntlet,
   onOpenMultiplayer,
   onOpenStudio,
   onOpenCollection,
@@ -50,13 +78,15 @@ export function TitleScreen({
   onOpenReplay,
   onOpenAnalytics,
   recentMatches,
-  customCardCount,
   syncingCloud = false,
 }: TitleScreenProps) {
   const [showRules, setShowRules] = useState(false);
+  const [nowMs] = useState<number>(() => Date.now());
+  const dailyStatus = getDailyRewardStatus(dailyRewards, new Date(nowMs));
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (dailyRewardModalOpen) return;
       if (showRules) {
         if (e.key === 'Escape') setShowRules(false);
         return;
@@ -70,7 +100,7 @@ export function TitleScreen({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onStartBattle, showRules]);
+  }, [onStartBattle, showRules, dailyRewardModalOpen]);
 
   const wins = recentMatches.filter((m) => m.winner === 'player').length;
 
@@ -104,8 +134,32 @@ export function TitleScreen({
         />
       </div>
 
-      {/* Top-Right Safe Area: Cloud Account Status */}
-      <div className="relative z-20 px-6 sm:px-12 lg:px-20 pt-5 flex items-center justify-end">
+      {/* Top-Right Safe Area: Daily Login Reward + Cloud Account Status */}
+      <div className="relative z-20 px-6 sm:px-12 lg:px-20 pt-5 flex flex-wrap items-center justify-end gap-2.5">
+        <button
+          type="button"
+          data-testid="title-daily-reward-btn"
+          onClick={onOpenDailyRewards}
+          className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-semibold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+            dailyStatus.canClaimToday
+              ? 'bg-[#D4AF37]/20 border border-[#D4AF37]/75 text-[#F5DC8B] hover:bg-[#D4AF37]/30 shadow-[0_0_20px_rgba(212,175,55,0.22)]'
+              : 'bg-[#111521]/90 border border-white/15 text-[#C4C9D8] hover:text-white hover:border-white/30'
+          }`}
+        >
+          {dailyStatus.canClaimToday ? (
+            <>
+              <CalendarDays className="w-4 h-4 text-[#F5DC8B] shrink-0" />
+              <span>
+                Daily Reward: +{dailyStatus.nextRewardTier.shards} Shards
+              </span>
+            </>
+          ) : (
+            <>
+              <Flame className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Daily Streak: Day {dailyStatus.effectiveStreak}</span>
+            </>
+          )}
+        </button>
         <AccountBar syncingCloud={syncingCloud} />
       </div>
 
@@ -182,41 +236,100 @@ export function TitleScreen({
                 ORACLE ARENA
               </h1>
               <p className="text-base sm:text-lg text-[#C4C9D8] max-w-md leading-relaxed">
-                Five champions per side. Speed-ordered turns, shields, elemental
-                statuses, and deterministic tactical combat.
+                Tear open Champion Packs, gamble 6 hidden cards in Blind Clash,
+                and earn Creator Cards to craft your own hero in the Skill Tree.
               </p>
             </div>
           </div>
+
+          {/* Welcome Starter Pack Callout for New Players */}
+          {!economy.starterPackOpened && (
+            <div
+              data-testid="title-starter-pack-callout"
+              className="w-full rounded-lg bg-[#161B2B]/95 border border-[#D4AF37]/70 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-[0_0_32px_rgba(212,175,55,0.2)]"
+            >
+              <div className="flex items-center gap-3">
+                <Gift className="w-7 h-7 text-[#F5DC8B] shrink-0" />
+                <div>
+                  <p className="font-display text-sm sm:text-base font-bold text-[#F5EFE0]">
+                    Welcome Gift Ready: Free Starter Pack!
+                  </p>
+                  <p className="text-xs text-[#C4C9D8]">
+                    Tear open 8 developer champions + 1 free Creator Card to start!
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                data-testid="title-open-starter-pack-btn"
+                onClick={onOpenPackVault}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-md bg-[#D4AF37] text-[#0B0D13] font-bold text-xs sm:text-sm hover:bg-[#E5C454] whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <PackageOpen className="w-4 h-4" />
+                <span>Open Starter Pack</span>
+              </button>
+            </div>
+          )}
 
           {/* Primary Menu Actions (<= 3 actions) */}
           <div className="flex flex-col sm:flex-row sm:flex-nowrap items-stretch sm:items-center gap-3 w-full sm:w-auto">
             <button
               type="button"
-              data-start="true"
-              onClick={onStartBattle}
+              data-testid="title-blind-clash-btn"
+              onClick={onOpenBlindClash}
               className="group inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-md bg-[#D4AF37] text-[#0B0D13] font-semibold text-sm sm:text-base tracking-wide hover:bg-[#E5C454] active:scale-[0.98] transition-all duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F5DC8B] shadow-[0_8px_28px_rgba(212,175,55,0.28)] whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <Swords className="w-4 h-4 shrink-0" />
-              <span>Enter Battle Arena</span>
+              <EyeOff className="w-4 h-4 shrink-0" />
+              <span>Blind Clash (6v6)</span>
             </button>
 
             <button
               type="button"
-              onClick={onOpenMultiplayer}
+              data-start="true"
+              onClick={onStartBattle}
               className="inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-md bg-[#121C2D]/95 text-[#ECEEF4] border border-sky-400/50 font-medium text-sm sm:text-base hover:bg-[#192942] hover:border-sky-300/80 active:scale-[0.98] transition-all duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <Users className="w-4 h-4 text-sky-300 shrink-0" />
-              <span>Multiplayer PvP</span>
+              <Swords className="w-4 h-4 text-sky-300 shrink-0" />
+              <span>5v5 Tactical Arena</span>
             </button>
 
+            <button
+              type="button"
+              data-testid="title-packs-btn"
+              onClick={onOpenPackVault}
+              className="inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-md bg-[#18142B]/90 text-[#ECEEF4] border border-violet-400/45 font-medium text-sm sm:text-base hover:bg-[#231D3F] hover:border-violet-300/70 active:scale-[0.98] transition-all duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <PackageOpen className="w-4 h-4 text-violet-300 shrink-0" />
+              <span>
+                Card Packs
+                {economy.unopenedBoosterPacks > 0
+                  ? ` (${economy.unopenedBoosterPacks})`
+                  : ''}
+              </span>
+            </button>
+          </div>
+
+          {/* Account Level & Creator Card Progress Strip */}
+          <div className="flex flex-wrap items-center gap-3 text-xs text-[#C4C9D8] font-mono tabular-nums">
+            <span className="text-[#F5DC8B] font-semibold">
+              Account Lv.{economy.accountLevel} ({economy.accountXp}/
+              {XP_PER_ACCOUNT_LEVEL} XP)
+            </span>
+            <span aria-hidden="true">·</span>
             <button
               type="button"
               onClick={onOpenStudio}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-md bg-[#18142B]/90 text-[#ECEEF4] border border-violet-400/45 font-medium text-sm sm:text-base hover:bg-[#231D3F] hover:border-violet-300/70 active:scale-[0.98] transition-all duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-1 text-violet-300 hover:text-violet-200 underline underline-offset-4 cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 text-violet-300 shrink-0" />
-              <span>Oracle Studio</span>
+              <Wand2 className="w-3.5 h-3.5" />
+              <span>Creator Cards: {economy.creatorCards}</span>
             </button>
+            <span aria-hidden="true">·</span>
+            <span className="text-emerald-300">
+              {economy.localShards} Shards
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>{ownedCardCount} Owned Cards</span>
           </div>
 
           {/* Quiet Match Record Summary (only when real matches exist) */}
@@ -269,6 +382,33 @@ export function TitleScreen({
         <div className="flex flex-wrap items-center gap-4">
           <button
             type="button"
+            onClick={onOpenStudio}
+            className="inline-flex items-center gap-1.5 text-violet-300 hover:text-violet-200 font-medium transition-colors cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            <span>Skill Tree Forge</span>
+          </button>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
+            onClick={onOpenMultiplayer}
+            className="inline-flex items-center gap-1.5 text-sky-300 hover:text-sky-200 font-medium transition-colors cursor-pointer"
+          >
+            <Users className="w-3.5 h-3.5 shrink-0" />
+            <span>Multiplayer PvP</span>
+          </button>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
+            onClick={onOpenGauntlet}
+            className="inline-flex items-center gap-1.5 text-amber-300 hover:text-[#FFF0B8] font-medium transition-colors cursor-pointer"
+          >
+            <Crown className="w-3.5 h-3.5 shrink-0" />
+            <span>PvE Gauntlet</span>
+          </button>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
             onClick={onOpenCollection}
             className="inline-flex items-center gap-1.5 text-[#C4C9D8] hover:text-[#F5DC8B] transition-colors cursor-pointer"
           >
@@ -287,20 +427,20 @@ export function TitleScreen({
           <span aria-hidden="true">·</span>
           <button
             type="button"
+            onClick={onOpenTradingHub}
+            className="inline-flex items-center gap-1.5 text-sky-300 hover:text-sky-200 transition-colors cursor-pointer"
+          >
+            <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
+            <span>Friends Trade</span>
+          </button>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
             onClick={onOpenMarketplace}
             className="inline-flex items-center gap-1.5 text-[#F5DC8B] hover:text-[#FFF0B8] transition-colors cursor-pointer"
           >
             <Store className="w-3.5 h-3.5 shrink-0" />
             <span>Marketplace</span>
-          </button>
-          <span aria-hidden="true">·</span>
-          <button
-            type="button"
-            onClick={onOpenTradingHub}
-            className="inline-flex items-center gap-1.5 text-sky-300 hover:text-sky-200 transition-colors cursor-pointer"
-          >
-            <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
-            <span>Trading Hub</span>
           </button>
           <span aria-hidden="true">·</span>
           <button
@@ -327,7 +467,7 @@ export function TitleScreen({
             className="inline-flex items-center gap-1.5 text-sky-300 hover:text-sky-200 transition-colors cursor-pointer"
           >
             <Film className="w-3.5 h-3.5 shrink-0" />
-            <span>Match Replays</span>
+            <span>Replays</span>
           </button>
           <span aria-hidden="true">·</span>
           <button
@@ -336,7 +476,7 @@ export function TitleScreen({
             className="inline-flex items-center gap-1.5 text-emerald-300 hover:text-emerald-200 transition-colors cursor-pointer"
           >
             <BarChart3 className="w-3.5 h-3.5 shrink-0" />
-            <span>Battle Analytics</span>
+            <span>Analytics</span>
           </button>
           <span aria-hidden="true">·</span>
           <button
@@ -345,12 +485,8 @@ export function TitleScreen({
             className="inline-flex items-center gap-1.5 text-[#C4C9D8] hover:text-[#F5DC8B] transition-colors cursor-pointer"
           >
             <BookOpen className="w-3.5 h-3.5 shrink-0" />
-            <span>Combat Rules</span>
+            <span>Rules</span>
           </button>
-          <span aria-hidden="true">·</span>
-          <span>
-            {10 + customCardCount} Champions · 5v5 Ruleset 1.0
-          </span>
         </div>
       </footer>
 

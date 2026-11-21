@@ -12,6 +12,24 @@ interface ErrorBoundaryState {
   message: string;
 }
 
+const EXTENSION_STACK_RE = /(?:chrome|moz|safari)-extension:\/\//i;
+
+function isThirdPartyExtensionError(error: Error): boolean {
+  const stack = typeof error.stack === 'string' ? error.stack : '';
+  const message = typeof error.message === 'string' ? error.message : '';
+  if (/Failed to connect to MetaMask/i.test(message)) {
+    return true;
+  }
+  if (stack && EXTENSION_STACK_RE.test(stack)) {
+    const origin =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : '';
+    return !origin || !stack.includes(origin);
+  }
+  return false;
+}
+
 export class ErrorBoundary extends React.Component<
   ErrorBoundaryProps,
   ErrorBoundaryState
@@ -22,6 +40,9 @@ export class ErrorBoundary extends React.Component<
   }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    if (isThirdPartyExtensionError(error)) {
+      return { hasError: false, message: '' };
+    }
     let readable = error.message || 'An unexpected error occurred.';
     try {
       const parsed = JSON.parse(error.message);
@@ -35,6 +56,7 @@ export class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    if (isThirdPartyExtensionError(error)) return;
     console.error('Oracle Arena ErrorBoundary caught:', error, info);
   }
 

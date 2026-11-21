@@ -15,11 +15,13 @@ import {
   Loader2,
   LogIn,
   Plus,
+  Radio,
   ShieldCheck,
   Swords,
   Trophy,
   Users,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   cancelWaitingRoom,
@@ -29,6 +31,10 @@ import {
   subscribeLeaderboard,
   subscribeLobbyRooms,
 } from '@/lib/firebase/repository';
+import {
+  getExpandedEloWindow,
+  selectBestQuickMatchRoom,
+} from '@/lib/game/matchmaking';
 import {
   BattleRoomDoc,
   normalizeRoomCode,
@@ -77,7 +83,11 @@ export function MultiplayerLobby({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [lobbyError, setLobbyError] = useState<string | null>(null);
   const [copiedMode, setCopiedMode] = useState<'code' | 'link' | null>(null);
+  const [quickQueueActive, setQuickQueueActive] = useState(false);
+  const [queueElapsedSec, setQueueElapsedSec] = useState(0);
+  const [quickQueueRoomId, setQuickQueueRoomId] = useState<string | null>(null);
   const hostedRoomIdToWatchRef = useRef<string | null>(null);
+  const quickMatchJoiningRef = useRef(false);
 
   // Live Firestore subscriptions once signed in
   useEffect(() => {
@@ -148,11 +158,147 @@ export function MultiplayerLobby({
     [visibleMyRooms]
   );
 
+  const ratingsByUid = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const entry of visibleLeaderboard) {
+      map[entry.uid] = entry.rating;
+    }
+    return map;
+  }, [visibleLeaderboard]);
+
+  const playerRating = profile?.rating ?? 1000;
+
   const displayName =
     profile?.displayName ||
     user?.displayName ||
     user?.email?.split('@')[0] ||
     'Arena Tactician';
+
+  // Tick elapsed queue timer while searching in Quick-Match Ranked Queue
+  useEffect(() => {
+    if (!quickQueueActive) return;
+    const interval = window.setInterval(() => {
+      setQueueElapsedSec((sec) => sec + 1);
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [quickQueueActive]);
+
+  // Auto-match if an eligible ranked opponent opens a room while we are queued
+  useEffect(() => {
+    if (!quickQueueActive || !user || quickMatchJoiningRef.current) return;
+
+    const candidate = selectBestQuickMatchRoom(
+      visibleOpenRooms,
+      user.uid,
+      playerRating,
+      ratingsByUid,
+      queueElapsedSec
+    );
+    if (!candidate) return;
+
+    quickMatchJoiningRef.current = true;
+    const roomToCancel = quickQueueRoomId;
+
+    (async () => {
+      try {
+        if (roomToCancel) {
+          hostedRoomIdToWatchRef.current = null;
+          await cancelWaitingRoom(roomToCancel).catch(() => {});
+        }
+        const joined = await joinBattleRoom(
+          candidate.room.roomId,
+          user,
+          displayName,
+          activeSquad
+        );
+        setQuickQueueActive(false);
+        setQuickQueueRoomId(null);
+        setQueueElapsedSec(0);
+        onEnterRoom(joined.roomId);
+      } catch (err) {
+        setLobbyError(
+          err instanceof Error
+            ? err.message
+            : 'Matched opponent left queue — continuing search.'
+        );
+      } finally {
+        quickMatchJoiningRef.current = false;
+      }
+    })();
+  }, [
+    quickQueueActive,
+    user,
+    visibleOpenRooms,
+    playerRating,
+    ratingsByUid,
+    queueElapsedSec,
+    quickQueueRoomId,
+    displayName,
+    activeSquad,
+    onEnterRoom,
+  ]);
+
+  const handleStartQuickMatch = async () => {
+    if (!user) return;
+    setLobbyError(null);
+    if (activeSquad.length !== 5) {
+      setLobbyError('Select a complete 5-champion squad before queuing.');
+      return;
+    }
+
+    setBusyAction('quick-match');
+    try {
+      const immediate = selectBestQuickMatchRoom(
+        visibleOpenRooms,
+        user.uid,
+        playerRating,
+        ratingsByUid,
+        0
+      );
+      if (immediate) {
+        const joined = await joinBattleRoom(
+          immediate.room.roomId,
+          user,
+          displayName,
+          activeSquad
+        );
+        onEnterRoom(joined.roomId);
+        return;
+      }
+
+      // Reuse existing waiting room if already hosted, otherwise open a fresh live queue room
+      if (activeWaitingHostedRoom) {
+        hostedRoomIdToWatchRef.current = activeWaitingHostedRoom.roomId;
+        setQuickQueueRoomId(activeWaitingHostedRoom.roomId);
+      } else {
+        const created = await createBattleRoom(user, displayName, activeSquad);
+        hostedRoomIdToWatchRef.current = created.roomId;
+        setQuickQueueRoomId(created.roomId);
+      }
+      setQueueElapsedSec(0);
+      setQuickQueueActive(true);
+    } catch (err) {
+      setLobbyError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to enter Ranked Quick-Match queue.'
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleCancelQuickMatch = async () => {
+    setLobbyError(null);
+    const roomToCancel = quickQueueRoomId ?? activeWaitingHostedRoom?.roomId;
+    setQuickQueueActive(false);
+    setQueueElapsedSec(0);
+    setQuickQueueRoomId(null);
+    if (roomToCancel) {
+      hostedRoomIdToWatchRef.current = null;
+      await cancelWaitingRoom(roomToCancel).catch(() => {});
+    }
+  };
 
   const handleCreateRoom = async () => {
     if (!user) return;
@@ -364,13 +510,13 @@ export function MultiplayerLobby({
 
             <div className="grid sm:grid-cols-3 gap-4 pt-1">
               <div className="rounded-md bg-[#0B0E17] border border-white/10 p-4 space-y-1.5">
-                <Users className="w-4 h-4 text-[#D4AF37]" />
+                <Zap className="w-4 h-4 text-[#D4AF37]" />
                 <h3 className="text-sm font-semibold text-[#F5EFE0]">
-                  Live 5v5 Rooms
+                  Quick-Match Ranked Queue
                 </h3>
                 <p className="text-xs text-[#9CA3B8] leading-relaxed">
-                  Host a battle room with a 6-character code or join an open
-                  challenger in real time.
+                  One-click ranked matchmaking pairs you with the closest-ELO
+                  rival or opens a live public queue room.
                 </p>
               </div>
               <div className="rounded-md bg-[#0B0E17] border border-white/10 p-4 space-y-1.5">
@@ -422,9 +568,71 @@ export function MultiplayerLobby({
           </section>
         ) : (
           /* Signed-in Multiplayer Workspace */
-          <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1.15fr] gap-6">
-            {/* LEFT COLUMN: Squad, Create Room / Active Waiting Room, Join by Code */}
-            <div className="space-y-6">
+          <div className="space-y-6">
+            {/* One-Click Quick-Match Ranked PvP Queue */}
+            <section
+              data-testid="quick-match-queue-panel"
+              className={`rounded-lg border p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors ${
+                quickQueueActive
+                  ? 'bg-gradient-to-r from-[#16132B] via-[#12192E] to-[#111521] border-sky-400/55 shadow-[0_0_32px_rgba(56,189,248,0.16)]'
+                  : 'bg-gradient-to-r from-[#141724] to-[#111521] border-[#D4AF37]/40'
+              }`}
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  {quickQueueActive ? (
+                    <Radio className="w-4 h-4 text-sky-300 animate-pulse shrink-0" />
+                  ) : (
+                    <Zap className="w-4 h-4 text-[#F5DC8B] shrink-0" />
+                  )}
+                  <h2 className="font-display text-lg font-bold text-[#F5EFE0]">
+                    {quickQueueActive
+                      ? 'Searching Ranked PvP Queue...'
+                      : 'Quick-Match Ranked PvP Queue'}
+                  </h2>
+                </div>
+                <p className="text-xs sm:text-sm text-[#9CA3B8]">
+                  {quickQueueActive
+                    ? `Scanning live challengers within ±${getExpandedEloWindow(
+                        queueElapsedSec
+                      )} ELO of your ${playerRating} rating · Elapsed ${queueElapsedSec}s · ${visibleOpenRooms.length} open room${
+                        visibleOpenRooms.length === 1 ? '' : 's'
+                      }`
+                    : `Instantly match against the closest-ELO open rival (${playerRating} ELO) or enter the live public matchmaking pool.`}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5 shrink-0">
+                {quickQueueActive ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleCancelQuickMatch()}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-md border border-rose-400/50 bg-rose-950/35 text-rose-200 text-sm font-semibold hover:bg-rose-950/60 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4 shrink-0" />
+                    <span>Cancel Queue</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busyAction === 'quick-match'}
+                    onClick={() => void handleStartQuickMatch()}
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-md bg-[#D4AF37] text-[#0B0D13] font-semibold text-sm hover:bg-[#E5C454] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-60 shadow-[0_6px_22px_rgba(212,175,55,0.25)]"
+                  >
+                    {busyAction === 'quick-match' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Zap className="w-4 h-4 shrink-0" />
+                    )}
+                    <span>Find Ranked Opponent</span>
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1.15fr] gap-6">
+              {/* LEFT COLUMN: Squad, Create Room / Active Waiting Room, Join by Code */}
+              <div className="space-y-6">
               {/* Active PvP Squad Preview */}
               <section className="rounded-lg bg-[#111521] border border-[#D4AF37]/30 p-5 space-y-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -844,6 +1052,7 @@ export function MultiplayerLobby({
                 </section>
               )}
             </div>
+          </div>
           </div>
         )}
       </div>

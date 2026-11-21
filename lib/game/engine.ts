@@ -1,5 +1,7 @@
+import { GauntletBossEncounter } from './gauntlet';
 import { createInitialRngState, nextRandom, nextRandomRange } from './rng';
 import { STANDARD_GUARD_ABILITY } from './roster';
+import { computeSquadSynergies, getElementalMatchup } from './synergy';
 import {
   AbilityDefinition,
   ActiveStatusEffect,
@@ -201,6 +203,70 @@ function advanceToNextActionableTurn(
         kind: 'round_start',
         message: `Round ${round} begins — speed order recalculated.`,
       });
+
+      // PvE Boss Encounter round-start passive hooks
+      if (state.bossEncounter) {
+        const boss = units.find(
+          (u) => u.instanceId === state.bossEncounter?.bossUnitInstanceId && u.alive
+        );
+        if (boss) {
+          if (
+            state.bossEncounter.bossPassiveId === 'ember_nova' &&
+            round >= 3 &&
+            round % 2 === 1
+          ) {
+            for (const pUnit of units.filter((u) => u.side === 'player' && u.alive)) {
+              let rem = 18;
+              let absorbed = 0;
+              if (pUnit.shield > 0) {
+                absorbed = Math.min(pUnit.shield, rem);
+                pUnit.shield -= absorbed;
+                rem -= absorbed;
+              }
+              if (rem > 0) {
+                pUnit.currentHp = Math.max(0, pUnit.currentHp - rem);
+                pUnit.statsTracker.damageTaken += rem;
+              }
+              pushEvent({
+                kind: 'status_tick',
+                actorId: boss.instanceId,
+                targetId: pUnit.instanceId,
+                statusType: 'burn',
+                amount: rem,
+                shieldAbsorbed: absorbed,
+                message: `Cinder Pulse scorches ${pUnit.name} for ${rem + absorbed} damage${
+                  absorbed > 0 ? ` (${absorbed} blocked)` : ''
+                }.`,
+              });
+              if (pUnit.currentHp <= 0) {
+                pUnit.alive = false;
+                pUnit.shield = 0;
+                pUnit.statuses = [];
+                boss.statsTracker.kosScored += 1;
+                pushEvent({
+                  kind: 'ko',
+                  actorId: boss.instanceId,
+                  targetId: pUnit.instanceId,
+                  message: `${pUnit.name} succumbs to Cinder Pulse!`,
+                });
+              }
+            }
+          } else if (state.bossEncounter.bossPassiveId === 'singularity_core') {
+            const before = boss.currentEnergy;
+            boss.currentEnergy = Math.min(boss.maxEnergy, boss.currentEnergy + 8);
+            const bonus = boss.currentEnergy - before;
+            if (bonus > 0) {
+              pushEvent({
+                kind: 'energy',
+                actorId: boss.instanceId,
+                targetId: boss.instanceId,
+                amount: bonus,
+                message: `Overclock Matrix surges ${boss.name} (+${bonus} Energy).`,
+              });
+            }
+          }
+        }
+      }
     }
 
     const nextId = turnQueue.shift()!;
@@ -355,19 +421,97 @@ function decrementStatuses(
   unit.statuses = remaining;
 }
 
+export interface CreateBattleOptions {
+  bossEncounter?: GauntletBossEncounter;
+  skipSynergy?: boolean;
+}
+
 export function createBattle(
   playerCards: CharacterDefinition[],
   enemyCards: CharacterDefinition[],
-  seed: number = 42019
+  seed: number = 42019,
+  options?: CreateBattleOptions
 ): BattleState {
   if (playerCards.length !== 5 || enemyCards.length !== 5) {
     throw new Error('Oracle Arena requires exactly 5 characters on each team.');
   }
 
+  const playerSynergy = computeSquadSynergies(playerCards);
+  const enemySynergy = computeSquadSynergies(enemyCards);
+
+  const applySynergyToUnit = (
+    unit: BattleUnit,
+    synergy: ReturnType<typeof computeSquadSynergies>
+  ): BattleUnit => {
+    if (options?.skipSynergy) return unit;
+    return {
+      ...unit,
+      attack: Math.round(unit.attack * (1 + synergy.totalAttackPct / 100)),
+      defense: Math.round(unit.defense * (1 + synergy.totalDefensePct / 100)),
+      speed: unit.speed + synergy.totalSpeedFlat,
+      healingPower: Math.round(
+        unit.healingPower * (1 + synergy.totalHealingPct / 100)
+      ),
+    };
+  };
+
   const units: BattleUnit[] = [
-    ...playerCards.map((card, i) => instantiateUnit(card, 'player', i)),
-    ...enemyCards.map((card, i) => instantiateUnit(card, 'enemy', i)),
+    ...playerCards.map((card, i) =>
+      applySynergyToUnit(instantiateUnit(card, 'player', i), playerSynergy)
+    ),
+    ...enemyCards.map((card, i) =>
+      applySynergyToUnit(instantiateUnit(card, 'enemy', i), enemySynergy)
+    ),
   ];
+
+  // Apply PvE Boss Encounter opening passives if present
+  let bossEncounterMeta: BattleState['bossEncounter'] = undefined;
+  const bossEnc = options?.bossEncounter;
+  if (bossEnc) {
+    const enemyUnits = units.filter((u) => u.side === 'enemy');
+    const bossUnit = enemyUnits[bossEnc.bossSlotIndex] ?? enemyUnits[0];
+    if (bossUnit) {
+      bossEncounterMeta = {
+        id: bossEnc.id,
+        stage: bossEnc.stage,
+        title: bossEnc.title,
+        bossName: bossEnc.bossName,
+        bossPassiveId: bossEnc.bossPassiveId,
+        bossPassiveName: bossEnc.bossPassiveName,
+        bossPassiveDescription: bossEnc.bossPassiveDescription,
+        bossUnitInstanceId: bossUnit.instanceId,
+      };
+
+      if (bossEnc.bossPassiveId === 'iron_bulwark') {
+        for (const eUnit of enemyUnits) {
+          eUnit.shield = Math.min(Math.round(eUnit.maxHp * 0.6), eUnit.shield + 24);
+        }
+        bossUnit.statuses.push({
+          id: 'boss-init-fortify',
+          type: 'fortify',
+          remainingTurns: 2,
+          potency: 25,
+          sourceUnitId: bossUnit.instanceId,
+        });
+      } else if (bossEnc.bossPassiveId === 'shadow_tempo') {
+        for (const eUnit of enemyUnits) {
+          eUnit.speed += 6;
+        }
+        bossUnit.statuses.push({
+          id: 'boss-init-empower',
+          type: 'empower',
+          remainingTurns: 2,
+          potency: 20,
+          sourceUnitId: bossUnit.instanceId,
+        });
+      } else if (bossEnc.bossPassiveId === 'singularity_core') {
+        bossUnit.currentEnergy = Math.min(
+          bossUnit.maxEnergy,
+          bossUnit.currentEnergy + 22
+        );
+      }
+    }
+  }
 
   const initialQueue = buildRoundTurnQueue(units);
   const startEvent: BattleEvent = {
@@ -375,7 +519,9 @@ export function createBattle(
     round: 1,
     turnNumber: 0,
     kind: 'match_start',
-    message: `Match initiated (Seed #${seed}). Round 1 — 5v5 engagement begins.`,
+    message: bossEnc
+      ? `Boss Encounter: ${bossEnc.title} (${bossEnc.bossPassiveName}) — 5v5 engagement begins.`
+      : `Match initiated (Seed #${seed}). Round 1 — 5v5 engagement begins.`,
   };
 
   const baseState: BattleState = {
@@ -393,6 +539,7 @@ export function createBattle(
     events: [startEvent],
     lastTurnEvents: [startEvent],
     replayLog: [],
+    bossEncounter: bossEncounterMeta,
   };
 
   return advanceToNextActionableTurn(baseState, [startEvent]);
@@ -621,7 +768,16 @@ export function executeAction(
         mitigated *= 1 + escalationPct / 100;
       }
 
+      // Soft Elemental Resonance matchup (+12% Resonant / -6% Dampened)
+      const matchup = getElementalMatchup(actor.element, target.element);
+      mitigated *= matchup.multiplier;
+
       const finalDamage = Math.max(8, Math.round(mitigated * varianceStep.value));
+      const isCritical =
+        (varianceStep.value >= 1.035 && finalDamage >= 78) ||
+        (ability.category === 'ultimate' && finalDamage >= 85) ||
+        (matchup.relation === 'advantage' && finalDamage >= 95);
+
       let remainingDamage = finalDamage;
       let shieldAbsorbed = 0;
 
@@ -638,6 +794,13 @@ export function executeAction(
       actor.statsTracker.damageDealt += finalDamage;
       target.statsTracker.damageTaken += finalDamage;
 
+      const resonanceTag =
+        matchup.relation === 'advantage'
+          ? ' [Resonant +12%]'
+          : matchup.relation === 'disadvantage'
+            ? ' [Dampened]'
+            : '';
+
       pushEvent({
         kind: 'damage',
         actorId: actor.instanceId,
@@ -646,7 +809,9 @@ export function executeAction(
         abilityName: ability.name,
         amount: finalDamage,
         shieldAbsorbed,
-        message: `${target.name} takes ${finalDamage} damage${
+        elementalRelation: matchup.relation,
+        isCritical,
+        message: `${target.name} takes ${finalDamage} damage${resonanceTag}${
           shieldAbsorbed > 0 ? ` (${shieldAbsorbed} blocked by shield)` : ''
         }.`,
       });

@@ -8,6 +8,7 @@ import {
   ArrowUpCircle,
   Check,
   Eye,
+  PackageOpen,
   RotateCcw,
   Sparkles,
   Store,
@@ -17,16 +18,20 @@ import {
 } from 'lucide-react';
 import { computeCharacterStatBudget } from '@/lib/game/balance';
 import { DEFAULT_PLAYER_SQUAD_IDS } from '@/lib/game/roster';
+import { computeSquadSynergies } from '@/lib/game/synergy';
 import { CharacterDefinition, CombatRole } from '@/lib/game/types';
 import { AccountBar } from './AccountBar';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { ELEMENT_STYLES } from './ui-meta';
+import { VisualStatBars } from './VisualStatBars';
 
 interface CollectionViewProps {
   characters: CharacterDefinition[];
   selectedSquadIds: string[];
   onChangeSquad: (ids: string[]) => void;
   onDeleteCustomCard: (cardId: string) => void;
+  onOpenPackVault?: () => void;
+  onOpenBlindClash?: () => void;
   onOpenStudio: () => void;
   onOpenEvolutionChamber: (focusDefId?: string) => void;
   onOpenMarketplace: () => void;
@@ -50,6 +55,8 @@ export function CollectionView({
   selectedSquadIds,
   onChangeSquad,
   onDeleteCustomCard,
+  onOpenPackVault,
+  onOpenBlindClash,
   onOpenStudio,
   onOpenEvolutionChamber,
   onOpenMarketplace,
@@ -85,6 +92,11 @@ export function CollectionView({
         (sum, c) => sum + computeCharacterStatBudget(c),
         0
       ),
+    [squadCharacters]
+  );
+
+  const squadSynergies = useMemo(
+    () => computeSquadSynergies(squadCharacters),
     [squadCharacters]
   );
 
@@ -134,6 +146,28 @@ export function CollectionView({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {onOpenPackVault && (
+              <button
+                type="button"
+                onClick={onOpenPackVault}
+                className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-[#F5DC8B] bg-[#D4AF37]/15 border border-[#D4AF37]/40 rounded-md hover:bg-[#D4AF37]/25 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <PackageOpen className="w-3.5 h-3.5 shrink-0" />
+                <span>Packs</span>
+              </button>
+            )}
+
+            {onOpenBlindClash && (
+              <button
+                type="button"
+                onClick={onOpenBlindClash}
+                className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-amber-200 bg-amber-500/15 border border-amber-400/40 rounded-md hover:bg-amber-500/25 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Swords className="w-3.5 h-3.5 shrink-0" />
+                <span>Blind Clash</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onOpenMarketplace}
@@ -149,7 +183,7 @@ export function CollectionView({
               className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-sky-200 bg-sky-500/15 border border-sky-400/40 rounded-md hover:bg-sky-500/25 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
-              <span>Trade</span>
+              <span>Friends Trade</span>
             </button>
 
             <button
@@ -281,6 +315,77 @@ export function CollectionView({
               );
             })}
           </div>
+
+          {/* Squad Synergies & Elemental Resonance Readout */}
+          <div
+            data-testid="collection-synergy-panel"
+            className="pt-3 border-t border-white/10 grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-3 items-start"
+          >
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-[#F5DC8B]">
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                  <span>Active Squad Synergies</span>
+                </span>
+                {(squadSynergies.totalAttackPct > 0 ||
+                  squadSynergies.totalDefensePct > 0 ||
+                  squadSynergies.totalSpeedFlat > 0 ||
+                  squadSynergies.totalHealingPct > 0) && (
+                  <span className="text-[11px] font-mono tabular-nums text-emerald-300">
+                    {squadSynergies.totalAttackPct > 0
+                      ? `+${squadSynergies.totalAttackPct}% ATK `
+                      : ''}
+                    {squadSynergies.totalDefensePct > 0
+                      ? `+${squadSynergies.totalDefensePct}% DEF `
+                      : ''}
+                    {squadSynergies.totalSpeedFlat > 0
+                      ? `+${squadSynergies.totalSpeedFlat} SPD `
+                      : ''}
+                    {squadSynergies.totalHealingPct > 0
+                      ? `+${squadSynergies.totalHealingPct}% HEAL`
+                      : ''}
+                  </span>
+                )}
+              </div>
+
+              {squadSynergies.synergies.length === 0 ? (
+                <p className="text-xs text-[#8F96AB]">
+                  Deploy 3–5 distinct roles or 2+ champions sharing an Element to
+                  activate passive combat bonuses.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {squadSynergies.synergies.map((syn) => (
+                    <div
+                      key={syn.id}
+                      className={`rounded-md px-2.5 py-1.5 border text-xs ${
+                        syn.kind === 'formation'
+                          ? 'bg-[#D4AF37]/12 border-[#D4AF37]/40 text-[#F5EFE0]'
+                          : 'bg-sky-500/12 border-sky-400/35 text-sky-100'
+                      }`}
+                    >
+                      <span className="font-semibold">{syn.name}</span>
+                      <span className="text-[#9CA3B8] ml-1.5 text-[11px]">
+                        {syn.description}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-md bg-[#0B0E17] border border-white/10 px-3 py-2 space-y-1 text-[11px]">
+              <p className="font-mono uppercase tracking-wider text-sky-300">
+                Elemental Resonance (+12% Resonant / -6% Dampened)
+              </p>
+              <p className="font-mono text-[#C4C9D8]">
+                Cosmic: Solar → Void → Aether → Cyber → Solar
+              </p>
+              <p className="font-mono text-[#C4C9D8]">
+                Primal: Ember → Frost → Storm → Iron → Ember
+              </p>
+            </div>
+          </div>
         </section>
 
         {/* Role Filter Bar */}
@@ -382,39 +487,9 @@ export function CollectionView({
                   </div>
                 </div>
 
-                {/* Stats + Actions */}
+                {/* Simplified Visual Stats + Actions */}
                 <div className="p-3 flex-1 flex flex-col justify-between gap-3">
-                  <div className="space-y-2">
-                    <p className="text-xs text-[#9CA3B8] line-clamp-2 leading-relaxed">
-                      {card.title} — {card.backstory}
-                    </p>
-                    <dl className="grid grid-cols-4 gap-1 text-center font-mono tabular-nums text-[11px] pt-1 border-t border-white/10">
-                      <div>
-                        <dt className="text-[#6B7287] text-[10px]">HP</dt>
-                        <dd className="text-emerald-300 font-semibold">
-                          {card.stats.maxHp}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#6B7287] text-[10px]">ATK</dt>
-                        <dd className="text-rose-300 font-semibold">
-                          {card.stats.attack}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#6B7287] text-[10px]">DEF</dt>
-                        <dd className="text-sky-300 font-semibold">
-                          {card.stats.defense}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#6B7287] text-[10px]">SPD</dt>
-                        <dd className="text-amber-300 font-semibold">
-                          {card.stats.speed}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
+                  <VisualStatBars character={card} compact />
 
                   <div className="flex items-center gap-2 pt-1">
                     <button

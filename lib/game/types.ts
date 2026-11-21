@@ -281,6 +281,8 @@ export interface BattleEvent {
   amount?: number;
   shieldAbsorbed?: number;
   statusType?: StatusEffectType;
+  elementalRelation?: 'advantage' | 'disadvantage' | 'neutral';
+  isCritical?: boolean;
   message: string;
 }
 
@@ -305,6 +307,16 @@ export interface BattleState {
   events: BattleEvent[];
   lastTurnEvents: BattleEvent[];
   replayLog: BattleReplayEntry[];
+  bossEncounter?: {
+    id: string;
+    stage: number;
+    title: string;
+    bossName: string;
+    bossPassiveId: string;
+    bossPassiveName: string;
+    bossPassiveDescription: string;
+    bossUnitInstanceId: string;
+  };
 }
 
 export interface ReplayUnitStatSnapshot {

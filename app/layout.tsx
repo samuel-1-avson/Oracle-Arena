@@ -41,6 +41,37 @@ export const metadata: Metadata = {
   },
 };
 
+const EXTENSION_ERROR_GUARD_SCRIPT = `
+(function () {
+  var EXT_RE = /(?:chrome|moz|safari)-extension:\\/\\//i;
+  function isExtensionOrigin(filename, stack, message) {
+    if (filename && EXT_RE.test(filename)) return true;
+    var origin = window.location && window.location.origin ? window.location.origin : '';
+    if (stack && EXT_RE.test(stack) && (!origin || stack.indexOf(origin) === -1)) return true;
+    if (message && /Failed to connect to MetaMask/i.test(message)) return true;
+    return false;
+  }
+  window.addEventListener('error', function (event) {
+    var err = event && event.error;
+    var stack = err && typeof err.stack === 'string' ? err.stack : '';
+    var msg = (event && event.message) || (err && err.message) || '';
+    if (isExtensionOrigin(event && event.filename, stack, msg)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+  window.addEventListener('unhandledrejection', function (event) {
+    var reason = event && event.reason;
+    var stack = reason && typeof reason.stack === 'string' ? reason.stack : '';
+    var msg = typeof reason === 'string' ? reason : (reason && reason.message) || '';
+    if (isExtensionOrigin('', stack, msg)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+})();
+`;
+
 export default function RootLayout({
   children,
 }: {
@@ -51,6 +82,12 @@ export default function RootLayout({
       lang="en"
       className={`${cinzel.variable} ${plusJakarta.variable} ${jetbrainsMono.variable} dark`}
     >
+      <head>
+        <script
+          id="extension-error-guard"
+          dangerouslySetInnerHTML={{ __html: EXTENSION_ERROR_GUARD_SCRIPT }}
+        />
+      </head>
       <body
         suppressHydrationWarning
         data-state="title"
