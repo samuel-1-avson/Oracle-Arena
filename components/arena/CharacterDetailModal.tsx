@@ -4,8 +4,10 @@ import React, { useEffect } from 'react';
 import Image from 'next/image';
 import { Shield, Swords, X, Zap } from 'lucide-react';
 import { validateCharacterBalance } from '@/lib/game/balance';
+import { getCardTierForLevel } from '@/lib/game/card-tiers';
 import { STANDARD_GUARD_ABILITY } from '@/lib/game/roster';
 import { CharacterDefinition } from '@/lib/game/types';
+import { CardTierBadge, CardTierRoadmap } from './CardTierBadge';
 import { ELEMENT_STYLES, formatTargetLabel } from './ui-meta';
 import { VisualStatBars } from './VisualStatBars';
 
@@ -38,6 +40,7 @@ export function CharacterDetailModal({
   if (!character) return null;
 
   const elem = ELEMENT_STYLES[character.element];
+  const cardTier = getCardTierForLevel(character.level);
   const balance = validateCharacterBalance(character);
   const allAbilities = [
     character.basicAttack,
@@ -55,24 +58,27 @@ export function CharacterDetailModal({
       onClick={onClose}
     >
       <div
-        className="bg-[#111521] border border-[#D4AF37]/35 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+        className={`bg-[#111521] border ${cardTier.borderClass} rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between gap-4 px-6 py-4 bg-[#111521] border-b border-white/10">
-          <div className="min-w-0">
-            <h2
-              id="character-detail-title"
-              className="font-display text-xl sm:text-2xl font-bold text-[#F5EFE0] truncate"
-            >
-              {character.name}
-            </h2>
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h2
+                id="character-detail-title"
+                className="font-display text-xl sm:text-2xl font-bold text-[#F5EFE0] truncate"
+              >
+                {character.name}
+              </h2>
+              <CardTierBadge level={character.level} showLevel />
+            </div>
             <p className="text-xs sm:text-sm text-[#9CA3B8]">
               {character.title} ·{' '}
               <span className={elem.text}>
                 {character.role} / {character.element}
               </span>{' '}
-              · {character.rarity} · Level {character.level}
+              · {cardTier.rankTitle} · {character.rarity}
             </p>
           </div>
           <button
@@ -89,7 +95,9 @@ export function CharacterDetailModal({
         <div className="p-6 grid md:grid-cols-[260px_1fr] gap-6">
           {/* Left Column: Portrait + Provenance + Stats */}
           <div className="space-y-5">
-            <div className="relative w-full aspect-[3/4] rounded-md overflow-hidden border border-[#D4AF37]/30 bg-[#090B10]">
+            <div
+              className={`relative w-full aspect-[3/4] rounded-md overflow-hidden border ${cardTier.borderClass} ${cardTier.glowClass} bg-[#090B10]`}
+            >
               <Image
                 src={character.artworkUrl}
                 alt={character.name}
@@ -142,8 +150,10 @@ export function CharacterDetailModal({
             </div>
           </div>
 
-          {/* Right Column: Lore, Strengths/Weaknesses, Complete Ability Kit */}
-          <div className="space-y-6">
+          {/* Right Column: Card Level Tier, Lore, Strengths/Weaknesses, Complete Ability Kit */}
+          <div className="space-y-5">
+            <CardTierRoadmap currentLevel={character.level} />
+
             <section className="space-y-2">
               <h3 className="text-sm font-semibold text-[#F5DC8B] tracking-wide">
                 Backstory & Temperament

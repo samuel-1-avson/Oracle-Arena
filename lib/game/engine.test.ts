@@ -21,8 +21,8 @@ import {
 } from './roster';
 import { CharacterDefinition } from './types';
 
-test('all 10 starter characters pass universal schema and balance validation', () => {
-  assert.equal(STARTER_CHARACTERS.length, 10);
+test('all 40 roster characters pass universal schema and balance validation', () => {
+  assert.equal(STARTER_CHARACTERS.length, 40);
   for (const card of STARTER_CHARACTERS) {
     const result = validateCharacterBalance(card);
     assert.equal(

@@ -1,3 +1,4 @@
+import { CardTierId, getCardTier } from './card-tiers';
 import { STARTER_CHARACTERS } from './roster';
 import { getElementalMatchup } from './synergy';
 import {
@@ -23,6 +24,8 @@ export interface BlindClashRoundResult {
   roundNumber: number;
   playerCard: CharacterDefinition;
   enemyCard: CharacterDefinition;
+  playerTier: CardTierId;
+  enemyTier: CardTierId;
   playerTraits: TraitId[];
   enemyTraits: TraitId[];
   playerBasePower: number;
@@ -30,7 +33,12 @@ export interface BlindClashRoundResult {
   playerFinalPower: number;
   enemyFinalPower: number;
   winner: 'player' | 'enemy' | 'draw';
-  winReason: 'trait_counter' | 'power_clash' | 'elemental_edge' | 'draw';
+  winReason:
+    | 'trait_counter'
+    | 'trump_override'
+    | 'power_clash'
+    | 'elemental_edge'
+    | 'draw';
   headline: string;
   detail: string;
 }
@@ -168,6 +176,8 @@ export function resolveBlindClashRound(
   playerCard: CharacterDefinition,
   enemyCard: CharacterDefinition
 ): BlindClashRoundResult {
+  const playerTier = getCardTier(playerCard);
+  const enemyTier = getCardTier(enemyCard);
   const playerTraits = getCardTraits(playerCard);
   const enemyTraits = getCardTraits(enemyCard);
   const playerVisual = getCardVisualStats(playerCard);
@@ -186,11 +196,16 @@ export function resolveBlindClashRound(
   const pElementRel = pElementMatchup.relation;
   const eElementRel = eElementMatchup.relation;
 
+  const playerTieredBase =
+    playerVisual.powerRating + playerTier.blindClashPowerBonus;
+  const enemyTieredBase =
+    enemyVisual.powerRating + enemyTier.blindClashPowerBonus;
+
   const playerFinalPower = Math.round(
-    playerVisual.powerRating * pElementMatchup.multiplier
+    playerTieredBase * pElementMatchup.multiplier
   );
   const enemyFinalPower = Math.round(
-    enemyVisual.powerRating * eElementMatchup.multiplier
+    enemyTieredBase * eElementMatchup.multiplier
   );
 
   // 1. Automatic Trait Counter Victory!
@@ -199,6 +214,8 @@ export function resolveBlindClashRound(
       roundNumber,
       playerCard,
       enemyCard,
+      playerTier: playerTier.id,
+      enemyTier: enemyTier.id,
       playerTraits,
       enemyTraits,
       playerBasePower: playerVisual.powerRating,
@@ -217,6 +234,8 @@ export function resolveBlindClashRound(
       roundNumber,
       playerCard,
       enemyCard,
+      playerTier: playerTier.id,
+      enemyTier: enemyTier.id,
       playerTraits,
       enemyTraits,
       playerBasePower: playerVisual.powerRating,
@@ -230,14 +249,21 @@ export function resolveBlindClashRound(
     };
   }
 
-  // 2. Power + Elemental Resonance comparison
+  // 2. Power + Tier + Elemental Resonance comparison (with Legendary Trump Card Authority)
+  const playerHasTrumpEdge =
+    playerTier.isLegendaryTrump && !enemyTier.isLegendaryTrump;
+  const enemyHasTrumpEdge =
+    enemyTier.isLegendaryTrump && !playerTier.isLegendaryTrump;
+
   if (playerFinalPower > enemyFinalPower) {
     const usedElement =
-      pElementRel === 'advantage' && playerVisual.powerRating <= enemyVisual.powerRating;
+      pElementRel === 'advantage' && playerTieredBase <= enemyTieredBase;
     return {
       roundNumber,
       playerCard,
       enemyCard,
+      playerTier: playerTier.id,
+      enemyTier: enemyTier.id,
       playerTraits,
       enemyTraits,
       playerBasePower: playerVisual.powerRating,
@@ -245,21 +271,31 @@ export function resolveBlindClashRound(
       playerFinalPower,
       enemyFinalPower,
       winner: 'player',
-      winReason: usedElement ? 'elemental_edge' : 'power_clash',
-      headline: usedElement
-        ? `ELEMENTAL WIN! ${playerCard.element} boosted ${playerCard.name} to ${playerFinalPower} PWR!`
-        : `CLASH VICTORY! ${playerFinalPower} PWR beats ${enemyFinalPower} PWR!`,
-      detail: `${playerCard.name} overpowered ${enemyCard.name} in the reveal.`,
+      winReason: playerHasTrumpEdge
+        ? 'trump_override'
+        : usedElement
+          ? 'elemental_edge'
+          : 'power_clash',
+      headline: playerHasTrumpEdge
+        ? `TRUMP CARD DOMINANCE! Legendary ${playerCard.name} (${playerFinalPower} PWR) trumps ${enemyTier.name} ${enemyCard.name}!`
+        : usedElement
+          ? `ELEMENTAL WIN! ${playerCard.element} boosted ${playerCard.name} to ${playerFinalPower} PWR!`
+          : `CLASH VICTORY! ${playerFinalPower} PWR beats ${enemyFinalPower} PWR!`,
+      detail: playerHasTrumpEdge
+        ? `Legendary Trump Card authority (+${playerTier.blindClashPowerBonus} PWR) overwhelmed the opposing ${enemyTier.name} champion.`
+        : `${playerCard.name} overpowered ${enemyCard.name} in the reveal.`,
     };
   }
 
   if (enemyFinalPower > playerFinalPower) {
     const usedElement =
-      eElementRel === 'advantage' && enemyVisual.powerRating <= playerVisual.powerRating;
+      eElementRel === 'advantage' && enemyTieredBase <= playerTieredBase;
     return {
       roundNumber,
       playerCard,
       enemyCard,
+      playerTier: playerTier.id,
+      enemyTier: enemyTier.id,
       playerTraits,
       enemyTraits,
       playerBasePower: playerVisual.powerRating,
@@ -267,11 +303,60 @@ export function resolveBlindClashRound(
       playerFinalPower,
       enemyFinalPower,
       winner: 'enemy',
-      winReason: usedElement ? 'elemental_edge' : 'power_clash',
-      headline: usedElement
-        ? `RIVAL ELEMENTAL WIN! ${enemyCard.element} boosted ${enemyCard.name} to ${enemyFinalPower} PWR.`
-        : `RIVAL WINS CLASH! ${enemyFinalPower} PWR beats ${playerFinalPower} PWR.`,
-      detail: `${enemyCard.name} edged out ${playerCard.name} in this round.`,
+      winReason: enemyHasTrumpEdge
+        ? 'trump_override'
+        : usedElement
+          ? 'elemental_edge'
+          : 'power_clash',
+      headline: enemyHasTrumpEdge
+        ? `RIVAL TRUMP CARD! Legendary ${enemyCard.name} (${enemyFinalPower} PWR) trumps ${playerTier.name} ${playerCard.name}.`
+        : usedElement
+          ? `RIVAL ELEMENTAL WIN! ${enemyCard.element} boosted ${enemyCard.name} to ${enemyFinalPower} PWR.`
+          : `RIVAL WINS CLASH! ${enemyFinalPower} PWR beats ${playerFinalPower} PWR.`,
+      detail: enemyHasTrumpEdge
+        ? `Rival's Legendary Trump Card (+${enemyTier.blindClashPowerBonus} PWR) asserted dominance.`
+        : `${enemyCard.name} edged out ${playerCard.name} in this round.`,
+    };
+  }
+
+  // Tie-break: Legendary Trump Card beats non-Trump on equal power!
+  if (playerHasTrumpEdge) {
+    return {
+      roundNumber,
+      playerCard,
+      enemyCard,
+      playerTier: playerTier.id,
+      enemyTier: enemyTier.id,
+      playerTraits,
+      enemyTraits,
+      playerBasePower: playerVisual.powerRating,
+      enemyBasePower: enemyVisual.powerRating,
+      playerFinalPower,
+      enemyFinalPower,
+      winner: 'player',
+      winReason: 'trump_override',
+      headline: `TRUMP CARD OVERRIDE! ${playerCard.name} breaks the ${playerFinalPower} PWR tie!`,
+      detail: `Legendary Trump Cards win deadlocked power clashes against lower-tier cards.`,
+    };
+  }
+
+  if (enemyHasTrumpEdge) {
+    return {
+      roundNumber,
+      playerCard,
+      enemyCard,
+      playerTier: playerTier.id,
+      enemyTier: enemyTier.id,
+      playerTraits,
+      enemyTraits,
+      playerBasePower: playerVisual.powerRating,
+      enemyBasePower: enemyVisual.powerRating,
+      playerFinalPower,
+      enemyFinalPower,
+      winner: 'enemy',
+      winReason: 'trump_override',
+      headline: `RIVAL TRUMP OVERRIDE! Legendary ${enemyCard.name} breaks the ${enemyFinalPower} PWR tie.`,
+      detail: `Legendary Trump Cards win deadlocked power clashes against lower-tier cards.`,
     };
   }
 
@@ -279,6 +364,8 @@ export function resolveBlindClashRound(
     roundNumber,
     playerCard,
     enemyCard,
+    playerTier: playerTier.id,
+    enemyTier: enemyTier.id,
     playerTraits,
     enemyTraits,
     playerBasePower: playerVisual.powerRating,

@@ -12,7 +12,9 @@ import {
   Sparkles,
   Zap,
 } from 'lucide-react';
+import { getCardTierForLevel } from '@/lib/game/card-tiers';
 import { BattleUnit } from '@/lib/game/types';
+import { CardTierBadge } from './CardTierBadge';
 import { ELEMENT_STYLES, STATUS_META } from './ui-meta';
 
 export interface FloatingCallout {
@@ -50,6 +52,8 @@ export function BattleCard({
   onInspect,
 }: BattleCardProps) {
   const elem = ELEMENT_STYLES[unit.element];
+  const unitLevel = unit.level ?? 1;
+  const cardTier = getCardTierForLevel(unitLevel);
   const hpPct = Math.max(0, Math.min(100, (unit.currentHp / unit.maxHp) * 100));
   const shieldPct = Math.max(
     0,
@@ -79,7 +83,7 @@ export function BattleCard({
           ? 'border-amber-400/80 shadow-[0_0_24px_rgba(245,158,11,0.28)] ring-1 ring-amber-400/40'
           : isSelectedTarget
             ? 'border-amber-300 shadow-[0_0_18px_rgba(251,191,36,0.3)]'
-            : 'border-white/15 hover:border-white/30';
+            : `${cardTier.cardFrameClass} ${cardTier.id !== 'bronze' ? cardTier.glowClass : ''}`;
 
   const flashOverlay =
     hitFlash === 'damage'
@@ -221,11 +225,12 @@ export function BattleCard({
             )}
           </div>
 
-          {/* Bottom Name Overlay over Scrim */}
-          <div className="absolute bottom-1 inset-x-2 z-10">
+          {/* Bottom Name & Card Tier Overlay over Scrim */}
+          <div className="absolute bottom-1 inset-x-2 z-10 flex items-end justify-between gap-1.5">
             <p className="font-display font-bold text-xs sm:text-sm text-[#F5EFE0] truncate leading-tight">
               {unit.name}
             </p>
+            <CardTierBadge level={unitLevel} compact />
           </div>
         </div>
 

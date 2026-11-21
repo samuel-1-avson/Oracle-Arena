@@ -18,6 +18,12 @@ import {
 } from 'lucide-react';
 import { validateCharacterBalance } from '@/lib/game/balance';
 import {
+  getCardTierForLevel,
+  getNextCardTier,
+  SHARD_TRAINING_COST,
+  SHARD_TRAINING_XP,
+} from '@/lib/game/card-tiers';
+import {
   ABILITY_POINT_MILESTONE_LEVELS,
   applyStatUpgrade,
   EVOLUTION_REQUIREMENTS,
@@ -36,12 +42,25 @@ import { STANDARD_GUARD_ABILITY } from '@/lib/game/roster';
 import { CharacterDefinition } from '@/lib/game/types';
 import { CompiledSingleAbilityResult } from '@/lib/oracle/compiler';
 import { AccountBar } from './AccountBar';
+import { CardTierBadge, CardTierRoadmap } from './CardTierBadge';
 import { ELEMENT_STYLES, formatTargetLabel } from './ui-meta';
 
 interface EvolutionChamberProps {
   characters: CharacterDefinition[];
   initialSelectedId?: string | null;
   selectedSquadIds: string[];
+  availableShards?: number;
+  onTrainWithShards?: (cardId: string) =>
+    | {
+        ok: true;
+        shardsSpent: number;
+        xpGained: number;
+        previousLevel: number;
+        newLevel: number;
+        tierPromoted: boolean;
+        newTierName: string;
+      }
+    | { ok: false; error: string };
   onUpdateCharacter: (updated: CharacterDefinition) => void;
   onOpenCollection: () => void;
   onOpenStudio: () => void;
@@ -69,6 +88,8 @@ export function EvolutionChamber({
   characters,
   initialSelectedId,
   selectedSquadIds,
+  availableShards = 0,
+  onTrainWithShards,
   onUpdateCharacter,
   onOpenCollection,
   onOpenStudio,
@@ -123,6 +144,8 @@ export function EvolutionChamber({
 
   const xpProgress = getXpProgressWithinLevel(selected);
   const nextLevelXp = getXpForNextLevel(selected.level);
+  const selectedTier = getCardTierForLevel(selected.level);
+  const nextTier = getNextCardTier(selected.level);
   const balance = validateCharacterBalance(selected);
   const elem = ELEMENT_STYLES[selected.element];
   const inSquad = selectedSquadIds.includes(selected.id);
@@ -145,6 +168,26 @@ export function EvolutionChamber({
     setDraftedAbility(null);
     setEvolveTitle('');
     setEvolveLore('');
+  };
+
+  const handleTrainSelected = () => {
+    if (!onTrainWithShards) return;
+    const res = onTrainWithShards(selected.id);
+    if (!res.ok) {
+      setChamberFeedback({ tone: 'error', message: res.error });
+      return;
+    }
+    const levelNote =
+      res.newLevel > res.previousLevel
+        ? ` Reached Lv.${res.newLevel}!`
+        : '';
+    const tierNote = res.tierPromoted
+      ? ` Promoted to ${res.newTierName}!`
+      : '';
+    setChamberFeedback({
+      tone: 'success',
+      message: `Trained ${selected.name} (+${res.xpGained} XP for ${res.shardsSpent} Shards).${levelNote}${tierNote}`,
+    });
   };
 
   const handleUpgradeStat = (stat: UpgradableStatKey) => {
@@ -374,14 +417,17 @@ export function EvolutionChamber({
                       <p className="text-xs font-semibold text-[#F5EFE0] truncate">
                         {card.name}
                       </p>
-                      <span className="text-[11px] font-mono tabular-nums text-[#F5DC8B] shrink-0">
-                        Lv.{card.level}
-                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <CardTierBadge level={card.level} compact />
+                        <span className="text-[11px] font-mono tabular-nums text-[#F5DC8B]">
+                          Lv.{card.level}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="w-full h-1.5 rounded-sm bg-black/50 overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-[#8B5CF6] to-[#D4AF37]"
+                        className={`h-full bg-gradient-to-r ${getCardTierForLevel(card.level).progressBarClass}`}
                         style={{ width: `${prog.percent}%` }}
                       />
                     </div>
@@ -416,92 +462,131 @@ export function EvolutionChamber({
         {/* RIGHT WORKSPACE */}
         <section className="space-y-5 min-w-0">
           {/* Selected Champion Hero Strip */}
-          <div className="bg-[#111521] border border-[#D4AF37]/30 rounded-lg p-5 flex flex-col sm:flex-row items-start sm:items-center gap-5">
-            <div className="relative w-20 h-24 rounded-md overflow-hidden border border-[#D4AF37]/50 shrink-0 bg-[#0B0E17]">
-              <Image
-                src={selected.artworkUrl}
-                alt={selected.name}
-                fill
-                priority
-                sizes="80px"
-                referrerPolicy="no-referrer"
-                className="object-cover object-top"
-              />
-            </div>
+          <div
+            className={`bg-[#111521] border ${selectedTier.borderClass} ${selectedTier.glowClass} rounded-lg p-5 space-y-4`}
+          >
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+              <div
+                className={`relative w-20 h-24 rounded-md overflow-hidden border ${selectedTier.borderClass} shrink-0 bg-[#0B0E17]`}
+              >
+                <Image
+                  src={selected.artworkUrl}
+                  alt={selected.name}
+                  fill
+                  priority
+                  sizes="80px"
+                  referrerPolicy="no-referrer"
+                  className="object-cover object-top"
+                />
+              </div>
 
-            <div className="flex-1 min-w-0 space-y-2.5 w-full">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="font-display text-2xl font-bold text-[#F5EFE0] truncate">
-                    {selected.name}
-                  </h2>
-                  <p className="text-xs sm:text-sm text-[#9CA3B8]">
-                    {selected.title} ·{' '}
-                    <span className={elem.text}>
-                      {selected.role} / {selected.element}
-                    </span>{' '}
-                    · {selected.rarity}
-                    {selected.evolutionStage > 0
-                      ? ` · Evolution Stage ${selected.evolutionStage}`
-                      : ''}
-                  </p>
-                  <p className="text-[11px] font-mono text-[#7C849B] mt-0.5">
-                    Creator: {selected.originalCreatorName} · Matches:{' '}
-                    {selected.combatRecord.matchesPlayed} (
-                    {selected.combatRecord.wins}W){' '}
-                    {inSquad ? '· Active Squad' : ''}
-                  </p>
+              <div className="flex-1 min-w-0 space-y-2.5 w-full">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <h2 className="font-display text-2xl font-bold text-[#F5EFE0] truncate">
+                        {selected.name}
+                      </h2>
+                      <CardTierBadge level={selected.level} showLevel />
+                    </div>
+                    <p className="text-xs sm:text-sm text-[#9CA3B8]">
+                      {selected.title} ·{' '}
+                      <span className={elem.text}>
+                        {selected.role} / {selected.element}
+                      </span>{' '}
+                      · {selectedTier.rankTitle} · {selected.rarity}
+                      {selected.evolutionStage > 0
+                        ? ` · Evolution Stage ${selected.evolutionStage}`
+                        : ''}
+                    </p>
+                    <p className="text-[11px] font-mono text-[#7C849B] mt-0.5">
+                      Creator: {selected.originalCreatorName} · Matches:{' '}
+                      {selected.combatRecord.matchesPlayed} (
+                      {selected.combatRecord.wins}W){' '}
+                      {inSquad ? '· Active Squad' : ''}
+                    </p>
+                  </div>
+
+                  {/* Live Resource Readouts */}
+                  <dl className="flex items-center gap-4 font-mono tabular-nums text-xs bg-[#0B0E17] border border-white/10 rounded-md px-3.5 py-2 shrink-0">
+                    <div>
+                      <dt className="text-[10px] text-[#8F96AB]">LEVEL</dt>
+                      <dd
+                        data-testid="evolution-selected-level"
+                        className="text-base font-bold text-[#F5DC8B]"
+                      >
+                        {selected.level}
+                        <span className="text-xs text-[#6B7287]">
+                          /{MAX_CHARACTER_LEVEL}
+                        </span>
+                      </dd>
+                    </div>
+                    <div className="h-7 w-px bg-white/10" aria-hidden="true" />
+                    <div>
+                      <dt className="text-[10px] text-[#8F96AB]">UPGRADE PTS</dt>
+                      <dd className="text-base font-bold text-emerald-300">
+                        {selected.upgradePoints}
+                      </dd>
+                    </div>
+                    <div className="h-7 w-px bg-white/10" aria-hidden="true" />
+                    <div>
+                      <dt className="text-[10px] text-[#8F96AB]">ABILITY PTS</dt>
+                      <dd className="text-base font-bold text-violet-300">
+                        {selected.abilityCreationPoints}
+                      </dd>
+                    </div>
+                  </dl>
                 </div>
 
-                {/* Live Resource Readouts */}
-                <dl className="flex items-center gap-4 font-mono tabular-nums text-xs bg-[#0B0E17] border border-white/10 rounded-md px-3.5 py-2 shrink-0">
-                  <div>
-                    <dt className="text-[10px] text-[#8F96AB]">LEVEL</dt>
-                    <dd className="text-base font-bold text-[#F5DC8B]">
-                      {selected.level}
-                      <span className="text-xs text-[#6B7287]">
-                        /{MAX_CHARACTER_LEVEL}
+                {/* XP Bar + Shard Training Control */}
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-[#9CA3B8]">
+                    <span>
+                      Experience: {selected.xp} XP
+                      {nextLevelXp !== null
+                        ? ` (${nextLevelXp - selected.xp} XP to Level ${selected.level + 1})`
+                        : ' (Max Level — Legendary Trump Card)'}
+                      {nextTier
+                        ? ` · Next Tier: ${nextTier.rankTitle} at Lv.${nextTier.minLevel}`
+                        : ''}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span>
+                        Budget {balance.statBudgetUsed}/{balance.statBudgetCap}
                       </span>
-                    </dd>
+                      {onTrainWithShards && selected.level < MAX_CHARACTER_LEVEL && (
+                        <button
+                          type="button"
+                          data-testid="train-card-shards-btn"
+                          onClick={handleTrainSelected}
+                          disabled={availableShards < SHARD_TRAINING_COST}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold border transition-colors whitespace-nowrap cursor-pointer ${
+                            availableShards >= SHARD_TRAINING_COST
+                              ? 'bg-[#D4AF37]/20 border-[#D4AF37]/60 text-[#F5DC8B] hover:bg-[#D4AF37]/35'
+                              : 'bg-white/5 border-white/10 text-[#6B7287] cursor-not-allowed'
+                          }`}
+                        >
+                          <ArrowUpCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>
+                            Train +{SHARD_TRAINING_XP} XP ({SHARD_TRAINING_COST}{' '}
+                            Shards · {availableShards} avail)
+                          </span>
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="h-7 w-px bg-white/10" aria-hidden="true" />
-                  <div>
-                    <dt className="text-[10px] text-[#8F96AB]">UPGRADE PTS</dt>
-                    <dd className="text-base font-bold text-emerald-300">
-                      {selected.upgradePoints}
-                    </dd>
+                  <div className="w-full h-2 rounded-sm bg-[#090B10] border border-white/10 overflow-hidden">
+                    <div
+                      className={`h-full bg-gradient-to-r ${selectedTier.progressBarClass} transition-all duration-300`}
+                      style={{ width: `${xpProgress.percent}%` }}
+                    />
                   </div>
-                  <div className="h-7 w-px bg-white/10" aria-hidden="true" />
-                  <div>
-                    <dt className="text-[10px] text-[#8F96AB]">ABILITY PTS</dt>
-                    <dd className="text-base font-bold text-violet-300">
-                      {selected.abilityCreationPoints}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-
-              {/* XP Bar */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-[#9CA3B8]">
-                  <span>
-                    Experience: {selected.xp} XP
-                    {nextLevelXp !== null
-                      ? ` (${nextLevelXp - selected.xp} XP to Level ${selected.level + 1})`
-                      : ' (Max Level)'}
-                  </span>
-                  <span>
-                    Budget {balance.statBudgetUsed}/{balance.statBudgetCap}
-                  </span>
-                </div>
-                <div className="w-full h-2 rounded-sm bg-[#090B10] border border-white/10 overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-[#8B5CF6] via-[#38BDF8] to-[#D4AF37] transition-all duration-300"
-                    style={{ width: `${xpProgress.percent}%` }}
-                  />
                 </div>
               </div>
             </div>
+
+            {/* 5-Tier Card Level Ladder (Bronze -> Silver -> Gold -> Diamond -> Legendary Trump Card) */}
+            <CardTierRoadmap currentLevel={selected.level} />
           </div>
 
           {/* Chamber Tabs */}

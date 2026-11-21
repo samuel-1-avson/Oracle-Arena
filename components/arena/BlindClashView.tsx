@@ -29,6 +29,7 @@ import { BattleAccountReward, PlayerEconomyState } from '@/lib/game/packs';
 import { getCardVisualStats, TRAIT_MAP } from '@/lib/game/traits';
 import { CharacterDefinition } from '@/lib/game/types';
 import { AccountBar } from './AccountBar';
+import { CardTierBadge } from './CardTierBadge';
 import { ELEMENT_STYLES } from './ui-meta';
 import { VisualStatBars } from './VisualStatBars';
 
@@ -476,9 +477,15 @@ export function BlindClashView({
                         />
                       </div>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <p className="text-[11px] font-mono text-emerald-300">
-                          YOUR CARD · {latestReveal.playerFinalPower} PWR
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="text-[11px] font-mono text-emerald-300">
+                            YOUR CARD · {latestReveal.playerFinalPower} PWR
+                          </p>
+                          <CardTierBadge
+                            level={latestReveal.playerCard.level}
+                            compact
+                          />
+                        </div>
                         <p className="font-display text-base font-bold text-[#F5EFE0] truncate">
                           {latestReveal.playerCard.name}
                         </p>
@@ -516,9 +523,15 @@ export function BlindClashView({
                         />
                       </div>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <p className="text-[11px] font-mono text-rose-300">
-                          RIVAL REVEALED · {latestReveal.enemyFinalPower} PWR
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="text-[11px] font-mono text-rose-300">
+                            RIVAL REVEALED · {latestReveal.enemyFinalPower} PWR
+                          </p>
+                          <CardTierBadge
+                            level={latestReveal.enemyCard.level}
+                            compact
+                          />
+                        </div>
                         <p className="font-display text-base font-bold text-[#F5EFE0] truncate">
                           {latestReveal.enemyCard.name}
                         </p>

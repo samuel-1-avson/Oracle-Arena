@@ -1,7 +1,9 @@
 import { computeAbilityPowerBudget } from './balance';
+import { EXPANSION_CHARACTERS } from './roster-expansion';
 import {
   AbilityDefinition,
   CharacterDefinition,
+  CombatRole,
   CONTENT_SCHEMA_VERSION,
   RULESET_VERSION,
 } from './types';
@@ -1355,8 +1357,13 @@ const RAW_STARTER_CHARACTERS: StarterCharacterInput[] = [
   },
 ];
 
-export const STARTER_CHARACTERS: CharacterDefinition[] =
+export const FOUNDING_CHARACTERS: CharacterDefinition[] =
   RAW_STARTER_CHARACTERS.map(withProgressionDefaults);
+
+export const STARTER_CHARACTERS: CharacterDefinition[] = [
+  ...FOUNDING_CHARACTERS,
+  ...EXPANSION_CHARACTERS,
+];
 
 export const DEFAULT_PLAYER_SQUAD_IDS = [
   'chr-kaelen-solaris',
@@ -1390,12 +1397,47 @@ export function getSquadCharacters(
     .filter((c): c is CharacterDefinition => Boolean(c));
 }
 
+const ROLE_ORDER: CombatRole[] = [
+  'Vanguard',
+  'Striker',
+  'Arcanist',
+  'Warden',
+  'Tactician',
+];
+
 export function getComplementaryEnemySquad(
   playerSquadIds: string[],
-  roster: CharacterDefinition[] = STARTER_CHARACTERS
+  roster: CharacterDefinition[] = STARTER_CHARACTERS,
+  seed?: number
 ): CharacterDefinition[] {
   const playerSet = new Set(playerSquadIds);
   const remaining = roster.filter((c) => !playerSet.has(c.id));
+
+  if (typeof seed === 'number' && remaining.length >= 5) {
+    // Pick a balanced 5-role enemy formation deterministically from the 40-champion roster
+    const picked: CharacterDefinition[] = [];
+    const usedIds = new Set<string>();
+    for (let i = 0; i < ROLE_ORDER.length; i += 1) {
+      const rolePool = remaining.filter(
+        (c) => c.role === ROLE_ORDER[i] && !usedIds.has(c.id)
+      );
+      if (rolePool.length > 0) {
+        const idx = Math.abs(Math.floor(seed * 31 + i * 17)) % rolePool.length;
+        const chosen = rolePool[idx];
+        picked.push(chosen);
+        usedIds.add(chosen.id);
+      }
+    }
+    for (const fallback of remaining) {
+      if (picked.length >= 5) break;
+      if (!usedIds.has(fallback.id)) {
+        picked.push(fallback);
+        usedIds.add(fallback.id);
+      }
+    }
+    if (picked.length === 5) return picked;
+  }
+
   if (remaining.length >= 5) {
     return remaining.slice(0, 5);
   }

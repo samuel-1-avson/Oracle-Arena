@@ -1,3 +1,4 @@
+import { getCardTierForLevel } from './card-tiers';
 import { GauntletBossEncounter } from './gauntlet';
 import { createInitialRngState, nextRandom, nextRandomRange } from './rng';
 import { STANDARD_GUARD_ABILITY } from './roster';
@@ -83,6 +84,17 @@ function instantiateUnit(
     ...(def.ultimateAbility ? [def.ultimateAbility] : []),
   ].slice(0, def.abilitySlotCapacity);
 
+  const unitLevel = Math.max(1, Math.floor(def.level ?? 1));
+  const tier = getCardTierForLevel(unitLevel);
+  const tierMult = 1 + tier.combatStatBonusPct / 100;
+  const scaledMaxHp = Math.round(def.stats.maxHp * tierMult);
+  const scaledAttack = Math.round(def.stats.attack * tierMult);
+  const scaledDefense = Math.round(def.stats.defense * tierMult);
+  const scaledStartingEnergy = Math.min(
+    def.stats.maxEnergy,
+    def.stats.startingEnergy + tier.startingEnergyBonus
+  );
+
   return {
     instanceId: `${side}-${slotIndex}-${def.id}`,
     definitionId: def.id,
@@ -92,15 +104,17 @@ function instantiateUnit(
     slotIndex,
     role: def.role,
     element: def.element,
+    level: unitLevel,
+    cardTier: tier.id,
     artworkUrl: def.artworkUrl,
-    maxHp: def.stats.maxHp,
-    currentHp: def.stats.maxHp,
+    maxHp: scaledMaxHp,
+    currentHp: scaledMaxHp,
     shield: 0,
-    attack: def.stats.attack,
-    defense: def.stats.defense,
+    attack: scaledAttack,
+    defense: scaledDefense,
     speed: def.stats.speed,
     maxEnergy: def.stats.maxEnergy,
-    currentEnergy: def.stats.startingEnergy,
+    currentEnergy: scaledStartingEnergy,
     healingPower: def.stats.healingPower,
     alive: true,
     basicAttack: def.basicAttack,

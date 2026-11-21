@@ -218,6 +218,8 @@ export interface BattleUnit {
   slotIndex: number; // 0..4
   role: CombatRole;
   element: ElementAffinity;
+  level: number;
+  cardTier: 'bronze' | 'silver' | 'gold' | 'diamond' | 'trump';
   artworkUrl: string;
   maxHp: number;
   currentHp: number;

@@ -63,6 +63,8 @@ import {
   MatchSummaryRecord,
   TeamSide,
 } from '@/lib/game/types';
+import { CARD_TIER_MAP } from '@/lib/game/card-tiers';
+import { CardTierBadge } from './CardTierBadge';
 import { BattleCard, FloatingCallout } from './BattleCard';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import {
@@ -1661,16 +1663,22 @@ export function BattleArena({
                         key={grant.definitionId}
                         className="py-1.5 flex flex-wrap items-center justify-between gap-2"
                       >
-                        <span className="font-sans font-medium text-[#ECEEF4]">
-                          {grant.name}
-                        </span>
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-sans font-medium text-[#ECEEF4]">
+                            {grant.name}
+                          </span>
+                          <CardTierBadge level={grant.newLevel} compact />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2.5">
                           <span className="text-sky-300 font-semibold">
                             +{grant.xpGained} XP
                           </span>
                           {grant.newLevel > grant.previousLevel ? (
                             <span className="text-emerald-300 font-semibold">
                               Lv.{grant.previousLevel} → Lv.{grant.newLevel}
+                              {grant.tierPromoted
+                                ? ` · ${CARD_TIER_MAP[grant.newTier].badgeLabel}!`
+                                : ''}
                               {grant.upgradePointsEarned > 0
                                 ? ` (+${grant.upgradePointsEarned} UP`
                                 : ''}

@@ -1,5 +1,11 @@
 import { validateCharacterBalance } from './balance';
 import {
+  CardTierId,
+  getCardTierForLevel,
+  SHARD_TRAINING_COST,
+  SHARD_TRAINING_XP,
+} from './card-tiers';
+import {
   AbilityDefinition,
   BattleState,
   CharacterDefinition,
@@ -66,6 +72,9 @@ export interface BattleXpGrant {
   xpGained: number;
   previousLevel: number;
   newLevel: number;
+  previousTier: CardTierId;
+  newTier: CardTierId;
+  tierPromoted: boolean;
   upgradePointsEarned: number;
   abilityPointsEarned: number;
 }
@@ -194,6 +203,10 @@ export function computeValidatedBattleRewards(
       }
     }
 
+    const prevTier = getCardTierForLevel(prevLevel);
+    const nextTier = getCardTierForLevel(nextLevel);
+    const tierPromoted = nextTier.id !== prevTier.id;
+
     const tx: UpgradeTransaction = {
       id: `tx-xp-${battle.matchId}-${def.id}`,
       timestamp: nowIso,
@@ -203,7 +216,7 @@ export function computeValidatedBattleRewards(
         nextLevel > prevLevel
           ? ` (Leveled up to Lv.${nextLevel}, +${upEarned} UP${
               acpEarned > 0 ? `, +${acpEarned} ACP` : ''
-            })`
+            }${tierPromoted ? ` — Promoted to ${nextTier.rankTitle}!` : ''})`
           : ''
       }.`,
     };
@@ -232,12 +245,110 @@ export function computeValidatedBattleRewards(
       xpGained,
       previousLevel: prevLevel,
       newLevel: nextLevel,
+      previousTier: prevTier.id,
+      newTier: nextTier.id,
+      tierPromoted,
       upgradePointsEarned: upEarned,
       abilityPointsEarned: acpEarned,
     });
   }
 
   return { grants, updatedCharacters };
+}
+
+/**
+ * Trains a champion in the Evolution Chamber by spending Oracle Shards for XP,
+ * promoting the card through Bronze -> Silver -> Gold -> Diamond -> Legendary Trump Card.
+ */
+export function trainCharacterWithShards(
+  rawCard: CharacterDefinition,
+  availableShards: number,
+  options?: { shardCost?: number; xpGain?: number }
+):
+  | {
+      ok: true;
+      character: CharacterDefinition;
+      shardsSpent: number;
+      xpGained: number;
+      previousLevel: number;
+      newLevel: number;
+      previousTier: CardTierId;
+      newTier: CardTierId;
+      tierPromoted: boolean;
+    }
+  | { ok: false; error: string } {
+  const card = normalizeCharacterProgression(rawCard);
+  const shardCost = options?.shardCost ?? SHARD_TRAINING_COST;
+  const xpGain = options?.xpGain ?? SHARD_TRAINING_XP;
+
+  if (card.level >= MAX_CHARACTER_LEVEL) {
+    return {
+      ok: false,
+      error: `${card.name} is already at Max Level (${MAX_CHARACTER_LEVEL} — Legendary Trump Card).`,
+    };
+  }
+
+  if (availableShards < shardCost) {
+    return {
+      ok: false,
+      error: `Need ${shardCost} Oracle Shards to train (you have ${availableShards}). Win battles or claim Daily Rewards to earn more Shards.`,
+    };
+  }
+
+  const prevLevel = card.level;
+  const prevTier = getCardTierForLevel(prevLevel);
+  const nextXp = card.xp + xpGain;
+  let nextLevel = prevLevel;
+  let upEarned = 0;
+  let acpEarned = 0;
+
+  while (
+    nextLevel < MAX_CHARACTER_LEVEL &&
+    nextXp >= LEVEL_XP_THRESHOLDS[nextLevel]
+  ) {
+    nextLevel += 1;
+    upEarned += 2;
+    if (ABILITY_POINT_MILESTONE_LEVELS.has(nextLevel)) {
+      acpEarned += 1;
+    }
+  }
+
+  const nextTier = getCardTierForLevel(nextLevel);
+  const tierPromoted = nextTier.id !== prevTier.id;
+
+  const tx: UpgradeTransaction = {
+    id: `tx-train-${Date.now()}-${card.id}`,
+    timestamp: new Date().toISOString(),
+    kind: 'xp_reward',
+    summary: `Shard Training (-${shardCost} Shards): +${xpGain} XP${
+      nextLevel > prevLevel
+        ? ` (Lv.${prevLevel} → Lv.${nextLevel}, +${upEarned} UP${
+            acpEarned > 0 ? `, +${acpEarned} ACP` : ''
+          }${tierPromoted ? ` — Promoted to ${nextTier.rankTitle}!` : ''})`
+        : ''
+    }.`,
+  };
+
+  const updated: CharacterDefinition = {
+    ...card,
+    xp: nextXp,
+    level: nextLevel,
+    upgradePoints: card.upgradePoints + upEarned,
+    abilityCreationPoints: card.abilityCreationPoints + acpEarned,
+    upgradeHistory: [tx, ...card.upgradeHistory].slice(0, 40),
+  };
+
+  return {
+    ok: true,
+    character: updated,
+    shardsSpent: shardCost,
+    xpGained: xpGain,
+    previousLevel: prevLevel,
+    newLevel: nextLevel,
+    previousTier: prevTier.id,
+    newTier: nextTier.id,
+    tierPromoted,
+  };
 }
 
 export function applyStatUpgrade(

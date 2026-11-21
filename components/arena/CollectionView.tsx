@@ -10,6 +10,7 @@ import {
   Eye,
   PackageOpen,
   RotateCcw,
+  Search,
   Sparkles,
   Store,
   Swords,
@@ -17,10 +18,21 @@ import {
   X,
 } from 'lucide-react';
 import { computeCharacterStatBudget } from '@/lib/game/balance';
+import {
+  CARD_TIERS,
+  CardTierId,
+  countCardsByTier,
+  getCardTierForLevel,
+} from '@/lib/game/card-tiers';
 import { DEFAULT_PLAYER_SQUAD_IDS } from '@/lib/game/roster';
 import { computeSquadSynergies } from '@/lib/game/synergy';
-import { CharacterDefinition, CombatRole } from '@/lib/game/types';
+import {
+  CharacterDefinition,
+  CombatRole,
+  ElementAffinity,
+} from '@/lib/game/types';
 import { AccountBar } from './AccountBar';
+import { CardTierBadge } from './CardTierBadge';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { ELEMENT_STYLES } from './ui-meta';
 import { VisualStatBars } from './VisualStatBars';
@@ -50,6 +62,18 @@ const ROLE_FILTERS: Array<'All' | 'Custom' | CombatRole> = [
   'Tactician',
 ];
 
+const ELEMENT_FILTERS: Array<'All' | ElementAffinity> = [
+  'All',
+  'Solar',
+  'Void',
+  'Storm',
+  'Aether',
+  'Cyber',
+  'Iron',
+  'Ember',
+  'Frost',
+];
+
 export function CollectionView({
   characters,
   selectedSquadIds,
@@ -67,18 +91,57 @@ export function CollectionView({
   const [roleFilter, setRoleFilter] = useState<'All' | 'Custom' | CombatRole>(
     'All'
   );
+  const [elementFilter, setElementFilter] = useState<'All' | ElementAffinity>(
+    'All'
+  );
+  const [tierFilter, setTierFilter] = useState<'All' | CardTierId>('All');
+  const [searchQuery, setSearchQuery] = useState('');
   const [inspectCard, setInspectCard] = useState<CharacterDefinition | null>(
     null
   );
   const [squadNotice, setSquadNotice] = useState<string | null>(null);
 
+  const tierCounts = useMemo(() => countCardsByTier(characters), [characters]);
+
   const filteredCharacters = useMemo(() => {
-    if (roleFilter === 'All') return characters;
-    if (roleFilter === 'Custom') {
-      return characters.filter((c) => c.id.startsWith('chr-custom-'));
-    }
-    return characters.filter((c) => c.role === roleFilter);
-  }, [characters, roleFilter]);
+    const q = searchQuery.trim().toLowerCase();
+    return characters.filter((c) => {
+      if (roleFilter === 'Custom' && !c.id.startsWith('chr-custom-')) {
+        return false;
+      }
+      if (
+        roleFilter !== 'All' &&
+        roleFilter !== 'Custom' &&
+        c.role !== roleFilter
+      ) {
+        return false;
+      }
+      if (elementFilter !== 'All' && c.element !== elementFilter) {
+        return false;
+      }
+      if (tierFilter !== 'All' && getCardTierForLevel(c.level).id !== tierFilter) {
+        return false;
+      }
+      if (q.length > 0) {
+        const tierMeta = getCardTierForLevel(c.level);
+        const haystack = [
+          c.name,
+          c.title,
+          c.role,
+          c.element,
+          tierMeta.name,
+          tierMeta.rankTitle,
+          c.basicAttack.name,
+          ...c.specialAbilities.map((a) => a.name),
+          c.ultimateAbility?.name ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [characters, roleFilter, elementFilter, tierFilter, searchQuery]);
 
   const squadCharacters = useMemo(() => {
     return selectedSquadIds
@@ -279,10 +342,11 @@ export function CollectionView({
                   </div>
                 );
               }
+              const squadTier = getCardTierForLevel(card.level);
               return (
                 <div
                   key={card.id}
-                  className="h-16 rounded-md border border-[#D4AF37]/35 bg-[#161C2C] px-2.5 flex items-center gap-2.5 overflow-hidden"
+                  className={`h-16 rounded-md border ${squadTier.borderClass} bg-[#161C2C] px-2.5 flex items-center gap-2.5 overflow-hidden`}
                 >
                   <div className="relative w-10 h-12 rounded-sm overflow-hidden shrink-0 border border-white/15 bg-gradient-to-b from-[#1C2338] to-[#0B0E17]">
                     <Image
@@ -296,11 +360,14 @@ export function CollectionView({
                     />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-[#F5EFE0] truncate">
-                      {card.name}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-semibold text-[#F5EFE0] truncate">
+                        {card.name}
+                      </p>
+                      <CardTierBadge level={card.level} compact />
+                    </div>
                     <p className="text-[11px] text-[#9CA3B8] truncate">
-                      {card.role} · {card.element}
+                      {card.role} · {card.element} · Lv.{card.level}
                     </p>
                   </div>
                   <button
@@ -388,57 +455,218 @@ export function CollectionView({
           </div>
         </section>
 
-        {/* Role Filter Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        {/* Role, Element & Search Filter Bar */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div
+              role="tablist"
+              aria-label="Filter champions by role"
+              className="flex flex-wrap items-center gap-1.5 p-1 bg-[#111521] border border-white/10 rounded-md"
+            >
+              {ROLE_FILTERS.map((role) => {
+                const active = roleFilter === role;
+                return (
+                  <button
+                    key={role}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setRoleFilter(role)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      active
+                        ? 'bg-[#D4AF37] text-[#0B0D13] font-semibold'
+                        : 'text-[#A6ADC2] hover:text-[#F5EFE0]'
+                    }`}
+                  >
+                    {role}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-[#8F96AB] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="search"
+                  aria-label="Search champions by name, title, or ability"
+                  data-testid="collection-search-input"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search champion or ability..."
+                  className="pl-8 pr-3 py-1.5 w-60 rounded-md bg-[#111521] border border-white/12 text-xs text-[#F5EFE0] placeholder:text-[#7D8499] focus:outline-none focus:border-[#D4AF37]/60"
+                />
+              </div>
+
+              <p
+                data-testid="collection-count-label"
+                className="text-xs text-[#8F96AB] font-mono tabular-nums"
+              >
+                Showing {filteredCharacters.length} of {characters.length} Champions
+              </p>
+            </div>
+          </div>
+
+          {/* Card Level Tier Filter & Ladder Strip (Bronze -> Silver -> Gold -> Diamond -> Legendary Trump Cards) */}
           <div
             role="tablist"
-            aria-label="Filter champions by role"
-            className="flex flex-wrap items-center gap-1.5 p-1 bg-[#111521] border border-white/10 rounded-md"
+            aria-label="Filter champions by card level tier"
+            data-testid="collection-tier-filter-bar"
+            className="flex flex-wrap items-center gap-1.5 p-2 rounded-md bg-[#111521] border border-white/10"
           >
-            {ROLE_FILTERS.map((role) => {
-              const active = roleFilter === role;
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tierFilter === 'All'}
+              data-testid="tier-filter-all"
+              onClick={() => setTierFilter('All')}
+              className={`px-2.5 py-1.5 text-[11px] font-mono font-semibold rounded border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                tierFilter === 'All'
+                  ? 'bg-white/15 border-white/40 text-white'
+                  : 'bg-[#0B0E17] border-white/10 text-[#9CA3B8] hover:text-white hover:border-white/25'
+              }`}
+            >
+              All Tiers ({characters.length})
+            </button>
+            {CARD_TIERS.map((tier) => {
+              const active = tierFilter === tier.id;
+              const count = tierCounts[tier.id];
               return (
                 <button
-                  key={role}
+                  key={tier.id}
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  onClick={() => setRoleFilter(role)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  data-testid={`tier-filter-${tier.id}`}
+                  title={`${tier.rankTitle} (Lv.${tier.minLevel}–${tier.maxLevel}): ${tier.perkSummary}`}
+                  onClick={() => setTierFilter(tier.id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono rounded border transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                     active
-                      ? 'bg-[#D4AF37] text-[#0B0D13] font-semibold'
-                      : 'text-[#A6ADC2] hover:text-[#F5EFE0]'
+                      ? `${tier.badgeBgClass} ${tier.glowClass} font-bold`
+                      : 'bg-[#0B0E17] border-white/10 text-[#A6ADC2] hover:text-[#F5EFE0] hover:border-white/25'
                   }`}
                 >
-                  {role}
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: tier.accentHex }}
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {tier.isLegendaryTrump
+                      ? 'Legendary: Trump Cards'
+                      : tier.name}
+                  </span>
+                  <span className="opacity-70 text-[10px]">
+                    Lv.{tier.minLevel}–{tier.maxLevel}
+                  </span>
+                  <span className="opacity-85 font-semibold">({count})</span>
                 </button>
               );
             })}
           </div>
 
-          <p className="text-xs text-[#8F96AB] font-mono tabular-nums">
-            Showing {filteredCharacters.length} of {characters.length} Champions
-          </p>
+          <div
+            role="tablist"
+            aria-label="Filter champions by element"
+            className="flex flex-wrap items-center gap-1.5"
+          >
+            {ELEMENT_FILTERS.map((elem) => {
+              const active = elementFilter === elem;
+              return (
+                <button
+                  key={elem}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setElementFilter(elem)}
+                  className={`px-2.5 py-1 text-[11px] font-medium rounded border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    active
+                      ? 'bg-sky-500/20 border-sky-400/60 text-sky-100 font-semibold'
+                      : 'bg-[#111521] border-white/10 text-[#9CA3B8] hover:text-[#F5EFE0] hover:border-white/25'
+                  }`}
+                >
+                  {elem === 'All' ? 'All Elements' : elem}
+                </button>
+              );
+            })}
+            {(roleFilter !== 'All' ||
+              elementFilter !== 'All' ||
+              tierFilter !== 'All' ||
+              searchQuery.trim().length > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRoleFilter('All');
+                  setElementFilter('All');
+                  setTierFilter('All');
+                  setSearchQuery('');
+                }}
+                className="px-2.5 py-1 text-[11px] text-[#F5DC8B] hover:text-white underline underline-offset-4 cursor-pointer"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Empty State for Custom Filter */}
+        {/* Empty State */}
         {filteredCharacters.length === 0 ? (
           <div className="rounded-lg bg-[#111521] border border-white/10 p-10 text-center space-y-3">
             <p className="font-display text-lg font-bold text-[#F5EFE0]">
-              No Custom Champions Yet
+              {tierFilter !== 'All'
+                ? `No ${
+                    CARD_TIERS.find((t) => t.id === tierFilter)?.rankTitle ??
+                    'Tier'
+                  } Champions Yet`
+                : roleFilter === 'Custom'
+                  ? 'No Custom Champions Yet'
+                  : 'No Matching Champions'}
             </p>
-            <p className="text-sm text-[#9CA3B8] max-w-md mx-auto">
-              Visit Oracle Studio to describe an original character and register
-              it to your playable collection.
+            <p className="text-sm text-[#9CA3B8] max-w-lg mx-auto">
+              {tierFilter !== 'All'
+                ? (() => {
+                    const t = CARD_TIERS.find((x) => x.id === tierFilter);
+                    return t
+                      ? `Level any champion to Level ${t.minLevel}–${t.maxLevel} through Battles or Shard Training in the Evolution Chamber to unlock ${t.rankTitle} (${t.perkSummary}).`
+                      : 'Level champions in the Evolution Chamber to unlock higher Card Level Tiers.';
+                  })()
+                : roleFilter === 'Custom'
+                  ? 'Visit Oracle Studio to describe an original character and register it to your playable collection.'
+                  : 'Try clearing your active search or filters to see your full 40+ champion roster.'}
             </p>
-            <button
-              type="button"
-              onClick={onOpenStudio}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-[#D4AF37] text-[#0B0D13] text-sm font-semibold hover:bg-[#E5C454] transition-colors cursor-pointer"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Open Oracle Studio</span>
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+              {tierFilter !== 'All' ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenEvolutionChamber()}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-[#D4AF37] text-[#0B0D13] text-sm font-semibold hover:bg-[#E5C454] transition-colors cursor-pointer"
+                >
+                  <ArrowUpCircle className="w-4 h-4" />
+                  <span>Train Cards in Evolution Chamber</span>
+                </button>
+              ) : roleFilter === 'Custom' ? (
+                <button
+                  type="button"
+                  onClick={onOpenStudio}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-[#D4AF37] text-[#0B0D13] text-sm font-semibold hover:bg-[#E5C454] transition-colors cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Open Oracle Studio</span>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setRoleFilter('All');
+                  setElementFilter('All');
+                  setTierFilter('All');
+                  setSearchQuery('');
+                }}
+                className="px-4 py-2.5 rounded-md border border-white/15 text-sm text-[#C4C9D8] hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
+                Show All Champions
+              </button>
+            </div>
           </div>
         ) : (
         <section
@@ -449,13 +677,15 @@ export function CollectionView({
             const inSquad = selectedSquadIds.includes(card.id);
             const isCustom = card.id.startsWith('chr-custom-');
             const elem = ELEMENT_STYLES[card.element];
+            const cardTier = getCardTierForLevel(card.level);
             return (
               <article
                 key={card.id}
+                data-card-tier={cardTier.id}
                 className={`flex flex-col rounded-lg overflow-hidden bg-[#121622] border transition-all duration-150 ${
                   inSquad
-                    ? 'border-[#D4AF37]/70 shadow-[0_0_24px_rgba(212,175,55,0.16)]'
-                    : 'border-white/12 hover:border-white/25'
+                    ? `border-[#D4AF37]/80 shadow-[0_0_24px_rgba(212,175,55,0.20)]`
+                    : `${cardTier.cardFrameClass} ${cardTier.id !== 'bronze' ? cardTier.glowClass : ''}`
                 }`}
               >
                 {/* Portrait */}
@@ -473,13 +703,21 @@ export function CollectionView({
                     className="absolute inset-0"
                     style={{
                       background:
-                        'linear-gradient(180deg, rgba(9,11,16,0.25) 0%, rgba(9,11,16,0) 40%, rgba(9,11,16,0.92) 100%)',
+                        'linear-gradient(180deg, rgba(9,11,16,0.42) 0%, rgba(9,11,16,0) 38%, rgba(9,11,16,0.92) 100%)',
                     }}
                   />
+                  {/* Card Level Tier Badge */}
+                  <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-1.5">
+                    <CardTierBadge level={card.level} showLevel />
+                    {card.evolutionStage > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-[#090B10]/85 border border-violet-400/45 text-[10px] font-mono font-semibold text-violet-200">
+                        S{card.evolutionStage}
+                      </span>
+                    )}
+                  </div>
                   <div className="absolute bottom-2 inset-x-3">
                     <p className={`text-[11px] font-medium ${elem.text}`}>
-                      {card.role} · {card.element} · Lv.{card.level}
-                      {card.evolutionStage > 0 ? ` · S${card.evolutionStage}` : ''}
+                      {card.role} · {card.element} · {cardTier.rankTitle}
                     </p>
                     <h3 className="font-display text-base font-bold text-[#F5EFE0] truncate">
                       {card.name}

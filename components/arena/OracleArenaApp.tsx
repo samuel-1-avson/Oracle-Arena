@@ -61,10 +61,12 @@ import {
   savePlayerEconomy,
   spendCreatorCard,
 } from '@/lib/game/packs';
+import { CARD_TIER_MAP } from '@/lib/game/card-tiers';
 import {
   BattleXpGrant,
   computeValidatedBattleRewards,
   normalizeCharacterProgression,
+  trainCharacterWithShards,
 } from '@/lib/game/progression';
 import {
   DEFAULT_PLAYER_SQUAD_IDS,
@@ -830,6 +832,36 @@ function OracleArenaShell({
     [user, profile]
   );
 
+  const handleTrainWithShards = useCallback(
+    (cardId: string) => {
+      const target = allCharacters.find((c) => c.id === cardId);
+      if (!target) {
+        return { ok: false as const, error: 'Champion not found in collection.' };
+      }
+      const res = trainCharacterWithShards(target, economy.localShards);
+      if (!res.ok) return res;
+
+      const nextEconomy: PlayerEconomyState = {
+        ...economy,
+        localShards: Math.max(0, economy.localShards - res.shardsSpent),
+      };
+      setEconomy(nextEconomy);
+      savePlayerEconomy(nextEconomy);
+      handleUpdateCharacter(res.character);
+
+      return {
+        ok: true as const,
+        shardsSpent: res.shardsSpent,
+        xpGained: res.xpGained,
+        previousLevel: res.previousLevel,
+        newLevel: res.newLevel,
+        tierPromoted: res.tierPromoted,
+        newTierName: CARD_TIER_MAP[res.newTier].rankTitle,
+      };
+    },
+    [allCharacters, economy, handleUpdateCharacter]
+  );
+
   const handleMatchFinished = useCallback(
     (
       summary: MatchSummaryRecord,
@@ -1000,9 +1032,10 @@ function OracleArenaShell({
     () =>
       getComplementaryEnemySquad(
         activePlayerSquad.map((c) => c.id),
-        STARTER_CHARACTERS
+        STARTER_CHARACTERS,
+        battleSeed
       ),
-    [activePlayerSquad]
+    [activePlayerSquad, battleSeed]
   );
 
   const activeTradableCatalog = useMemo(
@@ -1149,6 +1182,8 @@ function OracleArenaShell({
         characters={allCharacters}
         initialSelectedId={evolutionFocusId}
         selectedSquadIds={squadIds}
+        availableShards={economy.localShards}
+        onTrainWithShards={handleTrainWithShards}
         onUpdateCharacter={handleUpdateCharacter}
         onOpenCollection={() => setScreen('collection')}
         onOpenStudio={() => setScreen('studio')}
@@ -1253,7 +1288,7 @@ function OracleArenaShell({
   if (screen === 'collection') {
     return (
       <CollectionView
-        characters={ownedCharacters.length > 0 ? ownedCharacters : allCharacters}
+        characters={allCharacters}
         selectedSquadIds={squadIds}
         onChangeSquad={handleSquadChange}
         onDeleteCustomCard={handleDeleteCustomCard}
