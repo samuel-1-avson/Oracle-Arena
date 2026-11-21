@@ -32,7 +32,7 @@ import {
   ElementAffinity,
 } from '@/lib/game/types';
 import { AccountBar } from './AccountBar';
-import { CardTierBadge } from './CardTierBadge';
+import { CardTierBadge, CardTierOverlay } from './CardTierBadge';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { ELEMENT_STYLES } from './ui-meta';
 import { VisualStatBars } from './VisualStatBars';
@@ -95,6 +95,7 @@ export function CollectionView({
     'All'
   );
   const [tierFilter, setTierFilter] = useState<'All' | CardTierId>('All');
+  const [showTierFinishes, setShowTierFinishes] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [inspectCard, setInspectCard] = useState<CharacterDefinition | null>(
     null
@@ -346,7 +347,8 @@ export function CollectionView({
               return (
                 <div
                   key={card.id}
-                  className={`h-16 rounded-md border ${squadTier.borderClass} bg-[#161C2C] px-2.5 flex items-center gap-2.5 overflow-hidden`}
+                  data-card-tier={squadTier.id}
+                  className={`h-16 rounded-md ${squadTier.frameCssClass} px-2.5 flex items-center gap-2.5 overflow-hidden`}
                 >
                   <div className="relative w-10 h-12 rounded-sm overflow-hidden shrink-0 border border-white/15 bg-gradient-to-b from-[#1C2338] to-[#0B0E17]">
                     <Image
@@ -563,7 +565,93 @@ export function CollectionView({
                 </button>
               );
             })}
+
+            <button
+              type="button"
+              data-testid="toggle-tier-finishes-btn"
+              aria-expanded={showTierFinishes}
+              onClick={() => setShowTierFinishes((prev) => !prev)}
+              className={`ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono font-semibold rounded border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                showTierFinishes
+                  ? 'bg-[#D4AF37]/20 border-[#D4AF37]/60 text-[#F5DC8B]'
+                  : 'bg-[#0B0E17] border-white/15 text-[#C4C9D8] hover:text-[#F5DC8B] hover:border-[#D4AF37]/45'
+              }`}
+            >
+              <Sparkles className="w-3 h-3 shrink-0" />
+              <span>
+                {showTierFinishes ? 'Hide Tier Finishes' : 'Preview 5 Tier Finishes'}
+              </span>
+            </button>
           </div>
+
+          {showTierFinishes && (
+            <section
+              aria-label="Card Rarity & Level Tier CSS Finishes Preview"
+              data-testid="tier-finishes-showcase"
+              className="rounded-lg bg-[#0D111C] border border-white/12 p-4 space-y-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-display text-sm font-bold text-[#F5EFE0] tracking-wide">
+                    Card Tier Borders & Foil Overlays
+                  </h3>
+                  <p className="text-xs text-[#9CA3B8]">
+                    Every champion automatically upgrades its metallic border,
+                    glow, and portrait overlay as it levels from Bronze (Lv.1)
+                    to Legendary Trump Card (Lv.9–10).
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {CARD_TIERS.map((tier, idx) => {
+                  const sampleCard =
+                    squadCharacters[idx] ?? characters[idx] ?? characters[0];
+                  if (!sampleCard) return null;
+                  return (
+                    <div
+                      key={tier.id}
+                      data-testid={`tier-preview-card-${tier.id}`}
+                      className={`group flex flex-col rounded-lg overflow-hidden ${tier.frameCssClass}`}
+                    >
+                      <div className="relative w-full aspect-[4/3] bg-[#0B0E17] overflow-hidden">
+                        <Image
+                          src={sampleCard.artworkUrl}
+                          alt={`${sampleCard.name} — ${tier.rankTitle} preview`}
+                          fill
+                          sizes="20vw"
+                          referrerPolicy="no-referrer"
+                          className="object-cover object-top"
+                        />
+                        <CardTierOverlay level={tier.minLevel} />
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background:
+                              'linear-gradient(180deg, rgba(9,11,16,0.32) 0%, rgba(9,11,16,0) 42%, rgba(9,11,16,0.92) 100%)',
+                          }}
+                        />
+                        <div className="absolute top-2 left-2 z-10">
+                          <CardTierBadge level={tier.minLevel} showLevel />
+                        </div>
+                        <div className="absolute bottom-2 inset-x-2.5 z-10">
+                          <p className={`text-[10px] font-mono ${tier.textClass}`}>
+                            {tier.finishLabel}
+                          </p>
+                          <p className="font-display text-xs font-bold text-[#F5EFE0] truncate">
+                            {sampleCard.name}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="px-2.5 py-2 text-[10px] text-[#B6BDD0] leading-snug bg-[#0F131F]/80">
+                        {tier.perkSummary}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           <div
             role="tablist"
@@ -682,10 +770,8 @@ export function CollectionView({
               <article
                 key={card.id}
                 data-card-tier={cardTier.id}
-                className={`flex flex-col rounded-lg overflow-hidden bg-[#121622] border transition-all duration-150 ${
-                  inSquad
-                    ? `border-[#D4AF37]/80 shadow-[0_0_24px_rgba(212,175,55,0.20)]`
-                    : `${cardTier.cardFrameClass} ${cardTier.id !== 'bronze' ? cardTier.glowClass : ''}`
+                className={`group flex flex-col rounded-lg overflow-hidden ${cardTier.frameCssClass} ${
+                  inSquad ? 'ring-2 ring-[#D4AF37]/75' : ''
                 }`}
               >
                 {/* Portrait */}
@@ -699,6 +785,7 @@ export function CollectionView({
                     referrerPolicy="no-referrer"
                     className="object-cover object-top"
                   />
+                  <CardTierOverlay level={card.level} />
                   <div
                     className="absolute inset-0"
                     style={{
@@ -707,7 +794,7 @@ export function CollectionView({
                     }}
                   />
                   {/* Card Level Tier Badge */}
-                  <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-1.5">
+                  <div className="absolute top-2 left-2 right-2 z-10 flex items-center justify-between gap-1.5">
                     <CardTierBadge level={card.level} showLevel />
                     {card.evolutionStage > 0 && (
                       <span className="px-1.5 py-0.5 rounded bg-[#090B10]/85 border border-violet-400/45 text-[10px] font-mono font-semibold text-violet-200">
@@ -715,7 +802,7 @@ export function CollectionView({
                       </span>
                     )}
                   </div>
-                  <div className="absolute bottom-2 inset-x-3">
+                  <div className="absolute bottom-2 inset-x-3 z-10">
                     <p className={`text-[11px] font-medium ${elem.text}`}>
                       {card.role} · {card.element} · {cardTier.rankTitle}
                     </p>

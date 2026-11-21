@@ -25,11 +25,12 @@ import {
   getBlindClashRivals,
   playBlindClashCard,
 } from '@/lib/game/blind-clash';
+import { getCardTierForLevel } from '@/lib/game/card-tiers';
 import { BattleAccountReward, PlayerEconomyState } from '@/lib/game/packs';
 import { getCardVisualStats, TRAIT_MAP } from '@/lib/game/traits';
 import { CharacterDefinition } from '@/lib/game/types';
 import { AccountBar } from './AccountBar';
-import { CardTierBadge } from './CardTierBadge';
+import { CardTierBadge, CardTierOverlay } from './CardTierBadge';
 import { ELEMENT_STYLES } from './ui-meta';
 import { VisualStatBars } from './VisualStatBars';
 
@@ -456,92 +457,114 @@ export function BlindClashView({
                   {/* Side-by-Side Revealed Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 items-center">
                     {/* Player Card */}
-                    <motion.div
-                      initial={{ rotateY: -85, opacity: 0 }}
-                      animate={{ rotateY: 0, opacity: 1 }}
-                      transition={{ duration: 0.28 }}
-                      className={`rounded-lg p-3.5 bg-[#121827] border flex items-center gap-3.5 ${
-                        latestReveal.winner === 'player'
-                          ? 'border-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.2)]'
-                          : 'border-white/15'
-                      }`}
-                    >
-                      <div className="relative w-20 h-24 rounded-md overflow-hidden shrink-0 border border-white/15">
-                        <Image
-                          src={latestReveal.playerCard.artworkUrl}
-                          alt={latestReveal.playerCard.name}
-                          fill
-                          sizes="80px"
-                          referrerPolicy="no-referrer"
-                          className="object-cover object-top"
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="text-[11px] font-mono text-emerald-300">
-                            YOUR CARD · {latestReveal.playerFinalPower} PWR
-                          </p>
-                          <CardTierBadge
-                            level={latestReveal.playerCard.level}
-                            compact
-                          />
-                        </div>
-                        <p className="font-display text-base font-bold text-[#F5EFE0] truncate">
-                          {latestReveal.playerCard.name}
-                        </p>
-                        <p className="text-xs text-[#C4C9D8]">
-                          {latestReveal.playerTraits
-                            .map((t) => TRAIT_MAP[t]?.name)
-                            .join(' · ')}
-                        </p>
-                      </div>
-                    </motion.div>
+                    {(() => {
+                      const playerTier = getCardTierForLevel(
+                        latestReveal.playerCard.level
+                      );
+                      return (
+                        <motion.div
+                          initial={{ rotateY: -85, opacity: 0 }}
+                          animate={{ rotateY: 0, opacity: 1 }}
+                          transition={{ duration: 0.28 }}
+                          className={`rounded-lg p-3.5 flex items-center gap-3.5 ${playerTier.frameCssClass} ${
+                            latestReveal.winner === 'player'
+                              ? 'ring-2 ring-emerald-400/90 shadow-[0_0_24px_rgba(16,185,129,0.28)]'
+                              : ''
+                          }`}
+                        >
+                          <div className="relative w-20 h-24 rounded-md overflow-hidden shrink-0 border border-white/15">
+                            <Image
+                              src={latestReveal.playerCard.artworkUrl}
+                              alt={latestReveal.playerCard.name}
+                              fill
+                              sizes="80px"
+                              referrerPolicy="no-referrer"
+                              className="object-cover object-top"
+                            />
+                            <CardTierOverlay
+                              level={latestReveal.playerCard.level}
+                              compact
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="text-[11px] font-mono text-emerald-300">
+                                YOUR CARD · {latestReveal.playerFinalPower} PWR
+                              </p>
+                              <CardTierBadge
+                                level={latestReveal.playerCard.level}
+                                compact
+                              />
+                            </div>
+                            <p className="font-display text-base font-bold text-[#F5EFE0] truncate">
+                              {latestReveal.playerCard.name}
+                            </p>
+                            <p className="text-xs text-[#C4C9D8]">
+                              {latestReveal.playerTraits
+                                .map((t) => TRAIT_MAP[t]?.name)
+                                .join(' · ')}
+                            </p>
+                          </div>
+                        </motion.div>
+                      );
+                    })()}
 
                     <div className="text-center font-display text-xl font-bold text-[#F5DC8B]">
                       VS
                     </div>
 
                     {/* Enemy Revealed Card */}
-                    <motion.div
-                      initial={{ rotateY: 85, opacity: 0 }}
-                      animate={{ rotateY: 0, opacity: 1 }}
-                      transition={{ duration: 0.28 }}
-                      className={`rounded-lg p-3.5 bg-[#1A1320] border flex items-center gap-3.5 ${
-                        latestReveal.winner === 'enemy'
-                          ? 'border-rose-400 shadow-[0_0_24px_rgba(244,63,94,0.2)]'
-                          : 'border-white/15'
-                      }`}
-                    >
-                      <div className="relative w-20 h-24 rounded-md overflow-hidden shrink-0 border border-white/15">
-                        <Image
-                          src={latestReveal.enemyCard.artworkUrl}
-                          alt={latestReveal.enemyCard.name}
-                          fill
-                          sizes="80px"
-                          referrerPolicy="no-referrer"
-                          className="object-cover object-top"
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="text-[11px] font-mono text-rose-300">
-                            RIVAL REVEALED · {latestReveal.enemyFinalPower} PWR
-                          </p>
-                          <CardTierBadge
-                            level={latestReveal.enemyCard.level}
-                            compact
-                          />
-                        </div>
-                        <p className="font-display text-base font-bold text-[#F5EFE0] truncate">
-                          {latestReveal.enemyCard.name}
-                        </p>
-                        <p className="text-xs text-[#C4C9D8]">
-                          {latestReveal.enemyTraits
-                            .map((t) => TRAIT_MAP[t]?.name)
-                            .join(' · ')}
-                        </p>
-                      </div>
-                    </motion.div>
+                    {(() => {
+                      const enemyTier = getCardTierForLevel(
+                        latestReveal.enemyCard.level
+                      );
+                      return (
+                        <motion.div
+                          initial={{ rotateY: 85, opacity: 0 }}
+                          animate={{ rotateY: 0, opacity: 1 }}
+                          transition={{ duration: 0.28 }}
+                          className={`rounded-lg p-3.5 flex items-center gap-3.5 ${enemyTier.frameCssClass} ${
+                            latestReveal.winner === 'enemy'
+                              ? 'ring-2 ring-rose-400/90 shadow-[0_0_24px_rgba(244,63,94,0.28)]'
+                              : ''
+                          }`}
+                        >
+                          <div className="relative w-20 h-24 rounded-md overflow-hidden shrink-0 border border-white/15">
+                            <Image
+                              src={latestReveal.enemyCard.artworkUrl}
+                              alt={latestReveal.enemyCard.name}
+                              fill
+                              sizes="80px"
+                              referrerPolicy="no-referrer"
+                              className="object-cover object-top"
+                            />
+                            <CardTierOverlay
+                              level={latestReveal.enemyCard.level}
+                              compact
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="text-[11px] font-mono text-rose-300">
+                                RIVAL REVEALED · {latestReveal.enemyFinalPower} PWR
+                              </p>
+                              <CardTierBadge
+                                level={latestReveal.enemyCard.level}
+                                compact
+                              />
+                            </div>
+                            <p className="font-display text-base font-bold text-[#F5EFE0] truncate">
+                              {latestReveal.enemyCard.name}
+                            </p>
+                            <p className="text-xs text-[#C4C9D8]">
+                              {latestReveal.enemyTraits
+                                .map((t) => TRAIT_MAP[t]?.name)
+                                .join(' · ')}
+                            </p>
+                          </div>
+                        </motion.div>
+                      );
+                    })()}
                   </div>
                 </motion.div>
               ) : (
@@ -625,15 +648,16 @@ export function BlindClashView({
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {match.playerRemaining.map((card) => {
                 const visual = getCardVisualStats(card);
+                const handTier = getCardTierForLevel(card.level);
                 return (
                   <button
                     key={card.id}
                     type="button"
                     data-testid="player-clash-card"
                     onClick={() => handleThrowCard(card.id)}
-                    className="group text-left rounded-lg overflow-hidden bg-[#121622] border border-[#D4AF37]/40 hover:border-[#F5DC8B] hover:-translate-y-1 transition-all duration-150 cursor-pointer flex flex-col"
+                    className={`group text-left rounded-lg overflow-hidden hover:-translate-y-1 transition-all duration-150 cursor-pointer flex flex-col ${handTier.frameCssClass}`}
                   >
-                    <div className="relative h-28 w-full bg-[#0B0E17]">
+                    <div className="relative h-28 w-full bg-[#0B0E17] overflow-hidden">
                       <Image
                         src={card.artworkUrl}
                         alt={card.name}
@@ -649,10 +673,11 @@ export function BlindClashView({
                             'linear-gradient(180deg, rgba(9,11,16,0.1) 0%, rgba(9,11,16,0.92) 100%)',
                         }}
                       />
-                      <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-[#090B10]/85 text-[11px] font-mono font-bold text-[#F5DC8B]">
+                      <CardTierOverlay level={card.level} compact />
+                      <span className="absolute top-1.5 right-1.5 z-20 px-1.5 py-0.5 rounded bg-[#090B10]/85 text-[11px] font-mono font-bold text-[#F5DC8B]">
                         {visual.powerRating}
                       </span>
-                      <div className="absolute bottom-1.5 inset-x-2">
+                      <div className="absolute bottom-1.5 inset-x-2 z-20">
                         <p className="font-display text-sm font-bold text-[#F5EFE0] truncate">
                           {card.name}
                         </p>

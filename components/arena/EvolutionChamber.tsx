@@ -42,7 +42,7 @@ import { STANDARD_GUARD_ABILITY } from '@/lib/game/roster';
 import { CharacterDefinition } from '@/lib/game/types';
 import { CompiledSingleAbilityResult } from '@/lib/oracle/compiler';
 import { AccountBar } from './AccountBar';
-import { CardTierBadge, CardTierRoadmap } from './CardTierBadge';
+import { CardTierBadge, CardTierOverlay, CardTierRoadmap } from './CardTierBadge';
 import { ELEMENT_STYLES, formatTargetLabel } from './ui-meta';
 
 interface EvolutionChamberProps {
@@ -463,11 +463,12 @@ export function EvolutionChamber({
         <section className="space-y-5 min-w-0">
           {/* Selected Champion Hero Strip */}
           <div
-            className={`bg-[#111521] border ${selectedTier.borderClass} ${selectedTier.glowClass} rounded-lg p-5 space-y-4`}
+            data-card-tier={selectedTier.id}
+            className={`group ${selectedTier.frameCssClass} rounded-lg p-5 space-y-4`}
           >
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
               <div
-                className={`relative w-20 h-24 rounded-md overflow-hidden border ${selectedTier.borderClass} shrink-0 bg-[#0B0E17]`}
+                className={`relative w-20 h-24 rounded-md overflow-hidden ${selectedTier.frameCssClass} shrink-0`}
               >
                 <Image
                   src={selected.artworkUrl}
@@ -478,6 +479,7 @@ export function EvolutionChamber({
                   referrerPolicy="no-referrer"
                   className="object-cover object-top"
                 />
+                <CardTierOverlay level={selected.level} compact />
               </div>
 
               <div className="flex-1 min-w-0 space-y-2.5 w-full">

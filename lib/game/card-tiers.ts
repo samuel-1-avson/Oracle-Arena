@@ -27,6 +27,11 @@ export interface CardTierMeta {
   cardFrameClass: string;
   glowClass: string;
   progressBarClass: string;
+  /** CSS styling system classes defined in app/globals.css */
+  frameCssClass: string;
+  overlayCssClass: string;
+  cornerAccentClass: string;
+  finishLabel: string;
 }
 
 export const SHARD_TRAINING_COST = 25;
@@ -53,6 +58,10 @@ export const CARD_TIERS: CardTierMeta[] = [
     cardFrameClass: 'border-[#CD7F32]/40 hover:border-[#E3A869]/70',
     glowClass: 'shadow-[0_0_20px_rgba(205,127,50,0.16)]',
     progressBarClass: 'from-[#9A5B20] to-[#E3A869]',
+    frameCssClass: 'card-tier-frame card-tier-bronze',
+    overlayCssClass: 'card-tier-overlay card-tier-overlay-bronze',
+    cornerAccentClass: 'border-[#E3A869]/65',
+    finishLabel: 'Burnished Forged Bronze',
   },
   {
     id: 'silver',
@@ -74,6 +83,10 @@ export const CARD_TIERS: CardTierMeta[] = [
     cardFrameClass: 'border-slate-300/45 hover:border-slate-200/80',
     glowClass: 'shadow-[0_0_22px_rgba(203,213,225,0.20)]',
     progressBarClass: 'from-slate-400 to-slate-100',
+    frameCssClass: 'card-tier-frame card-tier-silver',
+    overlayCssClass: 'card-tier-overlay card-tier-overlay-silver',
+    cornerAccentClass: 'border-slate-200/80',
+    finishLabel: 'Brushed Chrome Silver',
   },
   {
     id: 'gold',
@@ -95,6 +108,10 @@ export const CARD_TIERS: CardTierMeta[] = [
     cardFrameClass: 'border-[#D4AF37]/55 hover:border-[#F5DC8B]/85',
     glowClass: 'shadow-[0_0_26px_rgba(212,175,55,0.28)]',
     progressBarClass: 'from-[#B8860B] to-[#F5DC8B]',
+    frameCssClass: 'card-tier-frame card-tier-gold',
+    overlayCssClass: 'card-tier-overlay card-tier-overlay-gold',
+    cornerAccentClass: 'border-[#FFF1B8]/85',
+    finishLabel: 'Metallic 24K Gold Foil',
   },
   {
     id: 'diamond',
@@ -116,6 +133,10 @@ export const CARD_TIERS: CardTierMeta[] = [
     cardFrameClass: 'border-cyan-400/55 hover:border-cyan-200/90',
     glowClass: 'shadow-[0_0_28px_rgba(56,189,248,0.30)]',
     progressBarClass: 'from-sky-500 via-cyan-300 to-white',
+    frameCssClass: 'card-tier-frame card-tier-diamond',
+    overlayCssClass: 'card-tier-overlay card-tier-overlay-diamond',
+    cornerAccentClass: 'border-cyan-200/95',
+    finishLabel: 'Glowing Crystalline Diamond',
   },
   {
     id: 'trump',
@@ -140,6 +161,10 @@ export const CARD_TIERS: CardTierMeta[] = [
       'border-[#F5DC8B]/75 ring-1 ring-rose-400/45 hover:border-[#FFF4CC]',
     glowClass: 'shadow-[0_0_32px_rgba(244,63,94,0.32)]',
     progressBarClass: 'from-[#D4AF37] via-rose-400 to-violet-400',
+    frameCssClass: 'card-tier-frame card-tier-trump',
+    overlayCssClass: 'card-tier-overlay card-tier-overlay-trump',
+    cornerAccentClass: 'border-[#FFF4CC]',
+    finishLabel: 'Prismatic Imperial Foil',
   },
 ];
 
@@ -192,6 +217,26 @@ export function getNextCardTier(level: number): CardTierMeta | null {
 export function formatTierLevelLabel(level: number): string {
   const tier = getCardTierForLevel(level);
   return `${tier.badgeLabel} · Lv.${Math.max(1, Math.floor(level || 1))}`;
+}
+
+export function getCardTierVisualClasses(level: number): {
+  tierId: CardTierId;
+  frameClass: string;
+  overlayClass: string;
+  cornerAccentClass: string;
+  finishLabel: string;
+  showCornerFiligree: boolean;
+} {
+  const tier = getCardTierForLevel(level);
+  return {
+    tierId: tier.id,
+    frameClass: tier.frameCssClass,
+    overlayClass: tier.overlayCssClass,
+    cornerAccentClass: tier.cornerAccentClass,
+    finishLabel: tier.finishLabel,
+    showCornerFiligree:
+      tier.id === 'gold' || tier.id === 'diamond' || tier.id === 'trump',
+  };
 }
 
 export function countCardsByTier(

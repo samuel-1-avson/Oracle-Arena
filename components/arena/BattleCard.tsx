@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { getCardTierForLevel } from '@/lib/game/card-tiers';
 import { BattleUnit } from '@/lib/game/types';
-import { CardTierBadge } from './CardTierBadge';
+import { CardTierBadge, CardTierOverlay } from './CardTierBadge';
 import { ELEMENT_STYLES, STATUS_META } from './ui-meta';
 
 export interface FloatingCallout {
@@ -72,18 +72,18 @@ export function BattleCard({
         : 'bg-rose-500';
 
   const frameClasses = !unit.alive
-    ? 'border-white/10 opacity-45 grayscale'
+    ? 'border border-white/10 bg-[#121622] opacity-45 grayscale'
     : isTargetable
       ? unit.side === 'enemy'
-        ? 'border-rose-400 shadow-[0_0_24px_rgba(244,63,94,0.38)] ring-2 ring-rose-400/50 -translate-y-1'
-        : 'border-sky-400 shadow-[0_0_24px_rgba(56,189,248,0.38)] ring-2 ring-sky-400/50 -translate-y-1'
+        ? `${cardTier.frameCssClass} ring-2 ring-rose-400/80 shadow-[0_0_24px_rgba(244,63,94,0.42)] -translate-y-1`
+        : `${cardTier.frameCssClass} ring-2 ring-sky-400/80 shadow-[0_0_24px_rgba(56,189,248,0.42)] -translate-y-1`
       : isActive
-        ? 'border-[#E5C158] shadow-[0_0_28px_rgba(212,175,55,0.36)] ring-2 ring-[#D4AF37]/45 -translate-y-1.5'
+        ? `${cardTier.frameCssClass} ring-2 ring-[#E5C158]/80 shadow-[0_0_28px_rgba(212,175,55,0.40)] -translate-y-1.5`
         : isBoss
-          ? 'border-amber-400/80 shadow-[0_0_24px_rgba(245,158,11,0.28)] ring-1 ring-amber-400/40'
+          ? `${cardTier.frameCssClass} ring-2 ring-amber-400/75 shadow-[0_0_26px_rgba(245,158,11,0.34)]`
           : isSelectedTarget
-            ? 'border-amber-300 shadow-[0_0_18px_rgba(251,191,36,0.3)]'
-            : `${cardTier.cardFrameClass} ${cardTier.id !== 'bronze' ? cardTier.glowClass : ''}`;
+            ? `${cardTier.frameCssClass} ring-2 ring-amber-300/80`
+            : cardTier.frameCssClass;
 
   const flashOverlay =
     hitFlash === 'damage'
@@ -110,9 +110,10 @@ export function BattleCard({
       data-alive={unit.alive ? 'true' : 'false'}
       data-active={isActive ? 'true' : 'false'}
       data-boss={isBoss ? 'true' : 'false'}
+      data-card-tier={cardTier.id}
       animate={lungeAnimation}
       transition={{ duration: 0.34, ease: 'easeOut' }}
-      className={`relative flex flex-col rounded-lg bg-[#121622] border transition-colors duration-200 select-none ${frameClasses}`}
+      className={`group relative flex flex-col rounded-lg transition-colors duration-200 select-none ${frameClasses}`}
     >
       {/* Floating Combat Delta Callouts */}
       {callouts.length > 0 && (
@@ -170,6 +171,9 @@ export function BattleCard({
             referrerPolicy="no-referrer"
             className="object-cover object-top transition-transform duration-300"
           />
+
+          {/* Rarity/Level Tier Metallic/Diamond/Foil Overlay */}
+          {unit.alive && <CardTierOverlay level={unitLevel} compact />}
 
           {/* Contrast Scrim */}
           <div

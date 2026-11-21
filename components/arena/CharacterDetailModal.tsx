@@ -7,7 +7,7 @@ import { validateCharacterBalance } from '@/lib/game/balance';
 import { getCardTierForLevel } from '@/lib/game/card-tiers';
 import { STANDARD_GUARD_ABILITY } from '@/lib/game/roster';
 import { CharacterDefinition } from '@/lib/game/types';
-import { CardTierBadge, CardTierRoadmap } from './CardTierBadge';
+import { CardTierBadge, CardTierOverlay, CardTierRoadmap } from './CardTierBadge';
 import { ELEMENT_STYLES, formatTargetLabel } from './ui-meta';
 import { VisualStatBars } from './VisualStatBars';
 
@@ -96,7 +96,8 @@ export function CharacterDetailModal({
           {/* Left Column: Portrait + Provenance + Stats */}
           <div className="space-y-5">
             <div
-              className={`relative w-full aspect-[3/4] rounded-md overflow-hidden border ${cardTier.borderClass} ${cardTier.glowClass} bg-[#090B10]`}
+              data-card-tier={cardTier.id}
+              className={`group relative w-full aspect-[3/4] rounded-md overflow-hidden ${cardTier.frameCssClass}`}
             >
               <Image
                 src={character.artworkUrl}
@@ -106,6 +107,7 @@ export function CharacterDetailModal({
                 referrerPolicy="no-referrer"
                 className="object-cover object-top"
               />
+              <CardTierOverlay level={character.level} />
             </div>
 
             {/* Kid-Friendly Visual Stat Bars */}

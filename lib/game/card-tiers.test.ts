@@ -7,6 +7,7 @@ import {
   countCardsByTier,
   formatTierLevelLabel,
   getCardTierForLevel,
+  getCardTierVisualClasses,
   getNextCardTier,
   isTrumpCard,
   SHARD_TRAINING_COST,
@@ -175,4 +176,28 @@ test('Blind Clash grants Tier Power Bonuses and Legendary Trump Card Dominance',
   assert.equal(result.enemyFinalPower, result.enemyBasePower);
   assert.ok(result.playerFinalPower > result.enemyFinalPower);
   assert.ok(result.headline.includes('TRUMP CARD'));
+});
+
+test('CSS styling system assigns distinct border, overlay, and corner filigree classes per tier', () => {
+  const sampleLevels = [1, 3, 5, 7, 9];
+  const frameSet = new Set<string>();
+  const overlaySet = new Set<string>();
+
+  for (const lvl of sampleLevels) {
+    const css = getCardTierVisualClasses(lvl);
+    assert.ok(css.frameClass.includes('card-tier-frame'));
+    assert.ok(css.frameClass.includes(`card-tier-${css.tierId}`));
+    assert.ok(css.overlayClass.includes('card-tier-overlay'));
+    assert.ok(css.overlayClass.includes(`card-tier-overlay-${css.tierId}`));
+    frameSet.add(css.frameClass);
+    overlaySet.add(css.overlayClass);
+  }
+
+  assert.equal(frameSet.size, 5, 'All 5 tiers must have unique CSS border classes');
+  assert.equal(overlaySet.size, 5, 'All 5 tiers must have unique CSS overlay classes');
+  assert.equal(getCardTierVisualClasses(1).showCornerFiligree, false);
+  assert.equal(getCardTierVisualClasses(3).showCornerFiligree, false);
+  assert.equal(getCardTierVisualClasses(5).showCornerFiligree, true);
+  assert.equal(getCardTierVisualClasses(7).showCornerFiligree, true);
+  assert.equal(getCardTierVisualClasses(9).showCornerFiligree, true);
 });

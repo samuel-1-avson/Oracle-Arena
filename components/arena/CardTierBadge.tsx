@@ -64,6 +64,56 @@ export function CardTierBadge({
   );
 }
 
+interface CardTierOverlayProps {
+  level: number;
+  compact?: boolean;
+  className?: string;
+}
+
+/**
+ * Non-interactive optical finish overlay for card portraits:
+ * - Bronze: warm forged copper sheen
+ * - Silver: brushed chrome specular sweep on hover
+ * - Gold: 24K metallic foil sweep + etched corner brackets
+ * - Diamond: faceted crystalline refraction + luminous glint + ice corner brackets
+ * - Legendary Trump Card: prismatic holographic foil + royal gilded corner brackets
+ */
+export function CardTierOverlay({
+  level,
+  compact = false,
+  className = '',
+}: CardTierOverlayProps) {
+  const tier = getCardTierForLevel(level);
+  const showCorners =
+    tier.id === 'gold' || tier.id === 'diamond' || tier.id === 'trump';
+  const cornerSize = compact ? 'w-2.5 h-2.5' : 'w-3.5 h-3.5';
+
+  return (
+    <div
+      aria-hidden="true"
+      data-tier-overlay={tier.id}
+      className={`${tier.overlayCssClass} ${className}`}
+    >
+      {showCorners && (
+        <>
+          <span
+            className={`absolute top-1.5 left-1.5 ${cornerSize} border-t-2 border-l-2 rounded-tl-[2px] ${tier.cornerAccentClass} opacity-85`}
+          />
+          <span
+            className={`absolute top-1.5 right-1.5 ${cornerSize} border-t-2 border-r-2 rounded-tr-[2px] ${tier.cornerAccentClass} opacity-85`}
+          />
+          <span
+            className={`absolute bottom-1.5 left-1.5 ${cornerSize} border-b-2 border-l-2 rounded-bl-[2px] ${tier.cornerAccentClass} opacity-85`}
+          />
+          <span
+            className={`absolute bottom-1.5 right-1.5 ${cornerSize} border-b-2 border-r-2 rounded-br-[2px] ${tier.cornerAccentClass} opacity-85`}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 interface CardTierRoadmapProps {
   currentLevel: number;
   className?: string;
@@ -106,35 +156,47 @@ export function CardTierRoadmap({
               key={tier.id}
               data-tier-step={tier.id}
               data-active={isCurrent ? 'true' : 'false'}
-              className={`rounded-md border px-2.5 py-2 transition-all ${
+              className={`relative overflow-hidden rounded-md px-2.5 py-2 transition-all ${
                 isCurrent
-                  ? `${tier.badgeBgClass} ${tier.glowClass}`
+                  ? `${tier.frameCssClass} text-[#F5EFE0]`
                   : isUnlocked
-                    ? 'bg-[#121726] border-white/20 text-[#D8DCE8]'
-                    : 'bg-[#0D101A] border-white/8 text-[#6E768D]'
+                    ? `${tier.frameCssClass} opacity-90 text-[#D8DCE8]`
+                    : 'border border-white/10 bg-[#0D101A] text-[#7A8299]'
               }`}
             >
-              <div className="flex items-center justify-between gap-1">
-                <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold uppercase tracking-wide">
-                  <TierIcon tierId={tier.id} className="w-3 h-3 shrink-0" />
-                  <span>{tier.id === 'trump' ? 'Trump Card' : tier.name}</span>
-                </span>
-                {isUnlocked && !isCurrent && (
-                  <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                )}
+              {isCurrent && (
+                <div
+                  aria-hidden="true"
+                  className={`${tier.overlayCssClass} opacity-65`}
+                />
+              )}
+              <div className="relative z-10">
+                <div className="flex items-center justify-between gap-1">
+                  <span
+                    className={`inline-flex items-center gap-1 text-[11px] font-mono font-bold uppercase tracking-wide ${
+                      isUnlocked ? tier.textClass : ''
+                    }`}
+                  >
+                    <TierIcon tierId={tier.id} className="w-3 h-3 shrink-0" />
+                    <span>{tier.id === 'trump' ? 'Trump Card' : tier.name}</span>
+                  </span>
+                  {isUnlocked && !isCurrent && (
+                    <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                  )}
+                </div>
+                <p className="text-[10px] font-mono opacity-80 mt-0.5">
+                  Lv.{tier.minLevel}–{tier.maxLevel}
+                  {tier.isLegendaryTrump ? ' · Legendary' : ''}
+                </p>
+                <p className="text-[10px] mt-1 leading-tight opacity-85">
+                  {tier.combatStatBonusPct > 0
+                    ? `+${tier.combatStatBonusPct}% Combat`
+                    : 'Base Stats'}
+                  {tier.startingEnergyBonus > 0
+                    ? ` · +${tier.startingEnergyBonus} EN`
+                    : ''}
+                </p>
               </div>
-              <p className="text-[10px] font-mono opacity-80 mt-0.5">
-                Lv.{tier.minLevel}–{tier.maxLevel}
-                {tier.isLegendaryTrump ? ' · Legendary' : ''}
-              </p>
-              <p className="text-[10px] mt-1 leading-tight opacity-85">
-                {tier.combatStatBonusPct > 0
-                  ? `+${tier.combatStatBonusPct}% Combat`
-                  : 'Base Stats'}
-                {tier.startingEnergyBonus > 0
-                  ? ` · +${tier.startingEnergyBonus} EN`
-                  : ''}
-              </p>
             </div>
           );
         })}
